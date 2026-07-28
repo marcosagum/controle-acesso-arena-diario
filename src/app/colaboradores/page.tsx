@@ -11,7 +11,6 @@ import {
   deletarColaborador,
   realizarCheckIn,
   realizarCheckOut,
-  limparBancoDeDados,
   ColaboradorComStatus
 } from '../actions';
 import * as XLSX from 'xlsx';
@@ -1250,46 +1249,6 @@ export default function GestaoCadastros() {
                 ).length === 0 && (
                   <span className="text-[11px] text-slate-500 text-center py-4">Nenhum colaborador encontrado.</span>
                 )}
-              </div>
-
-              {/* Zona de Perigo - Reset de Dados */}
-              <div className="border-t border-[rgba(255,255,255,0.05)] pt-6 mt-2 flex flex-col gap-4">
-                <div className="flex items-center gap-2 text-red-400">
-                  <span className="material-symbols-outlined text-[18px]">warning</span>
-                  <span className="text-[11px] font-black uppercase tracking-[1.5px]">Zona de Perigo</span>
-                </div>
-                <p className="text-[11px] text-slate-400 leading-normal">
-                  Esta ação apagará permanentemente todos os registros de acessos, colaboradores e empresas do banco de dados para iniciar o sistema do zero.
-                </p>
-                <button
-                  onClick={async () => {
-                    const confirmou1 = window.confirm('ATENÇÃO: Você tem certeza absoluta de que deseja APAGAR TODOS os cadastros e registros do sistema? Esta ação é irreversível.');
-                    if (!confirmou1) return;
-                    const confirmou2 = window.confirm('Confirmação final: Digite "APAGAR" na próxima tela se realmente deseja zerar o banco de dados.');
-                    if (!confirmou2) return;
-                    
-                    const palavra = window.prompt('Para confirmar a exclusão total, digite exatamente a palavra: APAGAR');
-                    if (palavra !== 'APAGAR') {
-                      alert('Operação cancelada. A palavra digitada não corresponde.');
-                      return;
-                    }
-
-                    try {
-                      const res = await limparBancoDeDados();
-                      if (res.success) {
-                        alert('Sucesso! O banco de dados foi limpo e está 100% zerado.');
-                        setColabSelecionadoId('');
-                        loadData();
-                      }
-                    } catch (err: any) {
-                      alert(err.message || 'Erro ao tentar limpar o banco de dados.');
-                    }
-                  }}
-                  className="w-full py-2.5 rounded-xl text-[11px] font-black uppercase tracking-[1px] bg-red-950/40 border border-red-500/30 hover:bg-red-900/40 text-red-200 transition-all cursor-pointer flex items-center justify-center gap-1.5"
-                >
-                  <span className="material-symbols-outlined text-[16px]">delete_forever</span>
-                  Zerar Banco de Dados
-                </button>
               </div>
             </div>
           </div>

@@ -3,21 +3,6 @@
 import { prisma } from '@/lib/db';
 import { revalidatePath } from 'next/cache';
 
-export async function limparBancoDeDados() {
-  try {
-    await prisma.registroAcesso.deleteMany();
-    await prisma.colaborador.deleteMany();
-    await prisma.empresa.deleteMany();
-    revalidatePath('/colaboradores');
-    revalidatePath('/auditoria');
-    revalidatePath('/');
-    return { success: true };
-  } catch (error: any) {
-    console.error('Erro ao limpar banco de dados:', error);
-    throw new Error('Falha ao limpar banco de dados: ' + error.message);
-  }
-}
-
 // Interface de retorno simplificada para a UI
 export interface ColaboradorComStatus {
   id: string;

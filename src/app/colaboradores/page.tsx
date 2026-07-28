@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useTransition } from 'react';
+import { useState, useEffect, useTransition, useRef } from 'react';
 import { 
   getColaboradoresComStatus, 
   getEmpresas, 
@@ -21,6 +21,7 @@ interface EmpresaInfo {
 }
 
 export default function GestaoCadastros() {
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [colaboradores, setColaboradores] = useState<ColaboradorComStatus[]>([]);
   const [empresas, setEmpresas] = useState<EmpresaInfo[]>([]);
   const [activeTab, setActiveTab] = useState<'colab' | 'emp' | 'lote' | 'editar'>('colab');
@@ -1268,13 +1269,28 @@ export default function GestaoCadastros() {
                 {/* Coluna do Preview Atual */}
                 <div className="glass-card p-6 flex flex-col items-center text-center gap-5 md:col-span-1">
                   <span className="text-[10px] font-bold uppercase tracking-[1.5px] text-slate-400 self-start">Perfil Atual</span>
-                  <div className="w-[120px] h-[120px] rounded-full overflow-hidden border-2 border-[rgba(255,26,60,0.15)] shadow-[0_0_20px_rgba(255,26,60,0.1)] relative">
+                  <div 
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-[120px] h-[120px] rounded-full overflow-hidden border-2 border-[rgba(255,26,60,0.15)] shadow-[0_0_20px_rgba(255,26,60,0.1)] relative group cursor-pointer transition-all hover:scale-105"
+                    title="Clique para carregar uma nova imagem"
+                  >
                     <img
                       src={editFotoBase64 || editFotoUrl || '/avatar_placeholder.png'}
                       alt="Avatar"
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-cover transition-all group-hover:scale-110 group-hover:blur-[1px]"
                     />
+                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center gap-1 transition-all duration-200">
+                      <span className="material-symbols-outlined text-[20px] text-white">photo_camera</span>
+                      <span className="text-[9px] text-slate-300 font-bold uppercase tracking-[0.5px]">Alterar Foto</span>
+                    </div>
                   </div>
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    accept="image/*"
+                    onChange={handleEditFotoUpload}
+                    className="hidden"
+                  />
                   <div className="flex flex-col gap-1">
                     <span className="text-[15px] font-black text-white leading-tight">{editNome || 'Nome do Colaborador'}</span>
                     <span className="text-[10px] text-slate-400 font-mono tracking-[0.5px]">
@@ -1349,38 +1365,6 @@ export default function GestaoCadastros() {
                           </option>
                         ))}
                       </select>
-                    </div>
-
-                    {/* Foto */}
-                    <div className="flex flex-col gap-3 border-t border-[rgba(255,255,255,0.03)] pt-4">
-                      <label className="text-[10px] font-bold uppercase tracking-[1.5px] text-slate-400">Alterar Foto do Perfil</label>
-                      
-                      <div className="flex flex-col gap-1.5">
-                        <span className="text-[9px] text-slate-500 uppercase font-black">URL da Foto (Remota)</span>
-                        <input
-                          type="url"
-                          placeholder="https://exemplo.com/foto.jpg"
-                          value={editFotoUrl}
-                          onChange={(e) => {
-                            setEditFotoUrl(e.target.value);
-                            setEditFotoBase64(''); 
-                          }}
-                          className="px-4 py-2.5 rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(5,8,18,0.7)] text-white text-[12px] outline-none focus:border-[var(--accent-red)] transition-all"
-                        />
-                      </div>
-
-                      <div className="flex items-center gap-4 py-2">
-                        <div className="h-px flex-1 bg-[rgba(255,255,255,0.05)]"></div>
-                        <span className="text-[9px] text-slate-500 font-bold uppercase tracking-[1px]">Ou envie um arquivo local</span>
-                        <div className="h-px flex-1 bg-[rgba(255,255,255,0.05)]"></div>
-                      </div>
-
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleEditFotoUpload}
-                        className="px-4 py-2 rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(5,8,18,0.7)] text-slate-300 text-[12px] file:mr-4 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-[11px] file:font-bold file:bg-slate-800 file:text-white hover:file:bg-slate-700 transition-all cursor-pointer"
-                      />
                     </div>
 
                     <div className="flex gap-4 border-t border-[rgba(255,255,255,0.03)] pt-5 mt-2">

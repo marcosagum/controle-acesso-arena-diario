@@ -9,6 +9,8 @@ import {
   importarColaboradoresLote,
   atualizarColaborador,
   deletarColaborador,
+  realizarCheckIn,
+  realizarCheckOut,
   ColaboradorComStatus
 } from '../actions';
 import * as XLSX from 'xlsx';
@@ -68,6 +70,13 @@ export default function GestaoCadastros() {
   const [empresasDesconhecidasLote, setEmpresasDesconhecidasLote] = useState<string[]>([]);
   const [conciliacaoResolvida, setConciliacaoResolvida] = useState<{ [key: string]: { action: 'CRIAR' | 'EXISTENTE'; value: string } }>({});
   const [showConciliacaoModal, setShowConciliacaoModal] = useState(false);
+
+  // Estados para Modal de Visualização de Perfil de Colaborador (Olho)
+  const [colabVisualizando, setColabVisualizando] = useState<ColaboradorComStatus | null>(null);
+  const [opEntradaVisualizando, setOpEntradaVisualizando] = useState('');
+  const [descServicoVisualizando, setDescServicoVisualizando] = useState('');
+  const [opSaidaVisualizando, setOpSaidaVisualizando] = useState('');
+  const [servExtrasVisualizando, setServExtrasVisualizando] = useState('');
 
   const [isPending, startTransition] = useTransition();
 
@@ -549,6 +558,53 @@ export default function GestaoCadastros() {
     reader.readAsDataURL(file);
   };
 
+  // Ações de Fluxo Direto pelo Modal do Olho
+  const handleAbrirCartaoVisualizacao = (colab: ColaboradorComStatus) => {
+    setColabVisualizando(colab);
+    setOpEntradaVisualizando('');
+    setDescServicoVisualizando('');
+    setOpSaidaVisualizando('');
+    setServExtrasVisualizando('');
+  };
+
+  const handleCheckInVisualizando = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!colabVisualizando) return;
+    if (!opEntradaVisualizando.trim() || !descServicoVisualizando.trim()) {
+      alert('Operador e descrição do serviço são obrigatórios.');
+      return;
+    }
+
+    try {
+      await realizarCheckIn(colabVisualizando.id, opEntradaVisualizando.trim(), descServicoVisualizando.trim());
+      setColabVisualizando(prev => prev ? { ...prev, status: 'DENTRO' } : null);
+      setOpEntradaVisualizando('');
+      setDescServicoVisualizando('');
+      loadData();
+    } catch (err: any) {
+      alert(err.message || 'Erro ao processar check-in.');
+    }
+  };
+
+  const handleCheckOutVisualizando = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!colabVisualizando) return;
+    if (!opSaidaVisualizando.trim()) {
+      alert('Operador de saída é obrigatório.');
+      return;
+    }
+
+    try {
+      await realizarCheckOut(colabVisualizando.id, opSaidaVisualizando.trim(), servExtrasVisualizando.trim() || undefined);
+      setColabVisualizando(prev => prev ? { ...prev, status: 'FORA' } : null);
+      setOpSaidaVisualizando('');
+      setServExtrasVisualizando('');
+      loadData();
+    } catch (err: any) {
+      alert(err.message || 'Erro ao processar check-out.');
+    }
+  };
+
   const loadData = () => {
     startTransition(async () => {
       try {
@@ -843,12 +899,13 @@ export default function GestaoCadastros() {
                     <th className="px-6 py-4">CPF</th>
                     <th className="px-6 py-4">Empresa</th>
                     <th className="px-6 py-4 text-center">Status Atual</th>
+                    <th className="px-6 py-4 text-center">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[rgba(255,255,255,0.02)] text-[13px]">
                   {colaboradoresFiltrados.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="px-6 py-8 text-center text-slate-500 font-medium">
+                      <td colSpan={5} className="px-6 py-8 text-center text-slate-500 font-medium">
                         Nenhum colaborador cadastrado correspondente ao filtro.
                       </td>
                     </tr>
@@ -881,6 +938,15 @@ export default function GestaoCadastros() {
                           }`}>
                             {colab.status}
                           </span>
+                        </td>
+                        <td className="px-6 py-3.5 text-center">
+                          <button
+                            onClick={() => handleAbrirCartaoVisualizacao(colab)}
+                            className="p-1.5 rounded-lg border border-[rgba(255,255,255,0.06)] hover:border-white bg-[rgba(255,255,255,0.02)] text-slate-400 hover:text-white transition-all cursor-pointer inline-flex items-center justify-center"
+                            title="Ver Perfil"
+                          >
+                            <span className="material-symbols-outlined text-[18px]">visibility</span>
+                          </button>
                         </td>
                       </tr>
                     ))
@@ -962,8 +1028,16 @@ export default function GestaoCadastros() {
                   ) : (
                     empresas.map((emp) => (
                       <tr key={emp.id} className="hover:bg-[rgba(255,255,255,0.005)]">
-                        <td className="px-6 py-3.5 text-white font-bold">
-                          {emp.nome}
+                        <td className="px-6 py-3.5">
+                          <button
+                            onClick={() => {
+                              setFiltroEmpresa(emp.nome);
+                              setActiveTab('colab');
+                            }}
+                            className="text-white font-bold hover:text-[var(--accent-red)] hover:underline transition-all text-left cursor-pointer bg-transparent border-0 p-0"
+                          >
+                            {emp.nome}
+                          </button>
                         </td>
                       </tr>
                     ))
@@ -1458,6 +1532,143 @@ export default function GestaoCadastros() {
               >
                 Confirmar e Cadastrar
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Modal do Cartão Informativo de Perfil do Colaborador (Visualização & Fluxo) */}
+      {colabVisualizando && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md flex items-center justify-center z-[99999] p-4 animate-[fadeIn_0.2s_ease-out]">
+          <div className="glass-card w-full max-w-md p-6 flex flex-col gap-6 border border-[rgba(255,255,255,0.08)] bg-[#050812]/95 shadow-2xl rounded-2xl relative animate-[fadeIn_0.2s_ease-out]">
+            
+            {/* Fechar Modal */}
+            <button
+              onClick={() => setColabVisualizando(null)}
+              className="absolute right-4 top-4 w-8 h-8 rounded-lg hover:bg-[rgba(255,255,255,0.05)] text-slate-400 hover:text-white flex items-center justify-center transition-all cursor-pointer"
+            >
+              <span className="material-symbols-outlined text-[20px]">close</span>
+            </button>
+
+            {/* Layout de Crachá Operacional */}
+            <div className="flex flex-col items-center text-center gap-4 mt-2">
+              <span className="text-[9px] font-black uppercase tracking-[2px] text-slate-500">Credencial Operacional</span>
+              
+              {/* Foto com Mascaramento Suave */}
+              <div className="w-[120px] h-[120px] rounded-full overflow-hidden border-2 border-[rgba(255,26,60,0.15)] shadow-[0_0_20px_rgba(255,26,60,0.1)] relative bg-slate-900 shrink-0">
+                {colabVisualizando.fotoUrl ? (
+                  <img
+                    src={colabVisualizando.fotoUrl}
+                    alt={colabVisualizando.nomeCompleto}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center bg-[rgba(255,26,60,0.05)] text-[var(--accent-red)] font-black text-[32px]">
+                    {colabVisualizando.nomeCompleto.split(' ').map(n => n[0]).slice(0, 2).join('')}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <h3 className="text-[16px] font-black text-white leading-tight">{colabVisualizando.nomeCompleto}</h3>
+                <span className="text-[11px] text-slate-400 font-mono tracking-[0.5px]">{formatCpfDisplay(colabVisualizando.cpf)}</span>
+                <span className="text-[12px] font-bold text-cyan-400 mt-0.5">{colabVisualizando.empresa.nome}</span>
+              </div>
+
+              {/* Status de Acesso */}
+              <div className="flex items-center gap-2 mt-1">
+                <span className={`w-2.5 h-2.5 rounded-full ${
+                  colabVisualizando.status === 'DENTRO'
+                    ? 'bg-[var(--status-active)] animate-pulse'
+                    : 'bg-red-500'
+                }`}></span>
+                <span className={`text-[11px] font-black uppercase tracking-[1px] ${
+                  colabVisualizando.status === 'DENTRO' ? 'text-[var(--status-active)]' : 'text-red-400'
+                }`}>
+                  Status: {colabVisualizando.status === 'DENTRO' ? 'Dentro da Arena' : 'Fora da Arena'}
+                </span>
+              </div>
+            </div>
+
+            {/* Ações de Liberação Operacional */}
+            <div className="border-t border-[rgba(255,255,255,0.05)] pt-5 flex flex-col gap-4">
+              {colabVisualizando.status === 'FORA' ? (
+                /* Formulário de Check-in */
+                <form onSubmit={handleCheckInVisualizando} className="flex flex-col gap-4">
+                  <div className="text-[10px] font-bold uppercase tracking-[1.5px] text-slate-400 border-l-2 border-[var(--status-active)] pl-2 text-left">
+                    Registrar Check-in (Entrada)
+                  </div>
+                  
+                  <div className="flex flex-col gap-1 text-left">
+                    <label className="text-[9px] font-bold uppercase tracking-[1px] text-slate-500">Operador CCO Responsável</label>
+                    <input
+                      type="text"
+                      placeholder="Ex: CCO João Silva..."
+                      value={opEntradaVisualizando}
+                      onChange={(e) => setOpEntradaVisualizando(e.target.value)}
+                      className="px-3.5 py-2.5 text-[12px] rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(5,8,18,0.7)] text-white outline-none focus:border-[var(--status-active)] transition-all"
+                      required
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1 text-left">
+                    <label className="text-[9px] font-bold uppercase tracking-[1px] text-slate-500">Descrição do Serviço / Destino</label>
+                    <input
+                      type="text"
+                      placeholder="Ex: Manutenção TI no Palco 3..."
+                      value={descServicoVisualizando}
+                      onChange={(e) => setDescServicoVisualizando(e.target.value)}
+                      className="px-3.5 py-2.5 text-[12px] rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(5,8,18,0.7)] text-white outline-none focus:border-[var(--status-active)] transition-all"
+                      required
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full py-3 rounded-xl text-[12px] font-bold bg-[var(--status-active)] hover:bg-[#3bf5b6] text-[#050812] flex items-center justify-center gap-1.5 cursor-pointer transition-all shadow-[0_0_15px_rgba(52,211,153,0.15)] mt-1"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">login</span>
+                    Confirmar Check-in de Entrada
+                  </button>
+                </form>
+              ) : (
+                /* Formulário de Check-out */
+                <form onSubmit={handleCheckOutVisualizando} className="flex flex-col gap-4">
+                  <div className="text-[10px] font-bold uppercase tracking-[1.5px] text-slate-400 border-l-2 border-red-500 pl-2 text-left">
+                    Registrar Check-out (Saída)
+                  </div>
+                  
+                  <div className="flex flex-col gap-1 text-left">
+                    <label className="text-[9px] font-bold uppercase tracking-[1px] text-slate-500">Operador CCO Responsável</label>
+                    <input
+                      type="text"
+                      placeholder="Ex: CCO João Silva..."
+                      value={opSaidaVisualizando}
+                      onChange={(e) => setOpSaidaVisualizando(e.target.value)}
+                      className="px-3.5 py-2.5 text-[12px] rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(5,8,18,0.7)] text-white outline-none focus:border-red-500 transition-all"
+                      required
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1 text-left">
+                    <label className="text-[9px] font-bold uppercase tracking-[1px] text-slate-500">Serviços Extras / Observações (Opcional)</label>
+                    <input
+                      type="text"
+                      placeholder="Ex: Entrega de chaves CCO..."
+                      value={servExtrasVisualizando}
+                      onChange={(e) => setServExtrasVisualizando(e.target.value)}
+                      className="px-3.5 py-2.5 text-[12px] rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(5,8,18,0.7)] text-white outline-none focus:border-red-500 transition-all"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full py-3 rounded-xl text-[12px] font-bold bg-red-500 hover:bg-red-400 text-white flex items-center justify-center gap-1.5 cursor-pointer transition-all shadow-[0_0_15px_rgba(239,68,68,0.15)] mt-1"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">logout</span>
+                    Confirmar Check-out de Saída
+                  </button>
+                </form>
+              )}
             </div>
           </div>
         </div>

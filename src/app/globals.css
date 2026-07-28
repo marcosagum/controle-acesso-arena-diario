@@ -1,0 +1,284 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-primary: #03050c;
+  --bg-secondary: #070a16;
+  --bg-card: rgba(8, 12, 28, 0.78);
+  --bg-input: rgba(5, 8, 18, 0.85);
+  --border-color: rgba(255, 255, 255, 0.05);
+  --border-glow: rgba(230, 0, 35, 0.25);
+  
+  --text-primary: #f9fafb;
+  --text-secondary: #cbd5e1;
+  --text-muted: #64748b;
+  
+  --accent-red: #ff1a3c;
+  --accent-red-hover: #ff4d6a;
+  --accent-glow: linear-gradient(135deg, #ff1a3c 0%, #990016 100%);
+  
+  --status-pending: #f87171;
+  --status-active: #34d399;
+  --status-cancelled: #f87171;
+  
+  --font-main: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  --transition-smooth: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  --shadow-premium: 0 15px 35px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --glass-blur: blur(8px);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-main);
+  min-height: 100vh;
+  overflow-x: hidden;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-image: 
+    radial-gradient(circle at 50% 0%, rgba(255, 26, 60, 0.06) 0%, transparent 50%),
+    linear-gradient(rgba(3, 5, 12, 0.9), rgba(3, 5, 12, 0.96)), 
+    url('/background_arena.jpg');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+input, button, select, textarea {
+  font-family: var(--font-main);
+  outline: none;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  transition: var(--transition-smooth);
+}
+
+input:focus, select:focus, textarea:focus {
+  border-color: var(--accent-red) !important;
+  box-shadow: 0 0 20px rgba(255, 26, 60, 0.25) !important;
+  background: rgba(10, 16, 36, 0.9) !important;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-red);
+}
+
+/* Glassmorphism utility card */
+.glass-card {
+  background: var(--bg-card);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 24px;
+  box-shadow: var(--shadow-premium);
+  transition: var(--transition-smooth);
+  position: relative;
+  overflow: hidden;
+  will-change: border-color, box-shadow;
+}
+
+.glass-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+  z-index: 1;
+}
+
+.glass-card:hover {
+  border-color: rgba(255, 26, 60, 0.15);
+  box-shadow: 0 15px 35px rgba(255, 26, 60, 0.04), var(--shadow-premium);
+}
+
+.nav-link.active {
+  color: #e60023 !important;
+  font-weight: 700 !important;
+  text-shadow: 0 0 8px rgba(230, 0, 35, 0.3) !important;
+}
+
+/* ==========================================
+   Splash Screen Overlay (Intro Animation)
+   ========================================== */
+.splash-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #03050c;
+  z-index: 999999;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.6s;
+  opacity: 1;
+  visibility: visible;
+}
+
+.splash-overlay.fade-out {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.splash-content {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.splash-glow {
+  position: absolute;
+  width: 220px;
+  height: 220px;
+  background: #ff1a3c;
+  filter: blur(100px);
+  border-radius: 50%;
+  opacity: 0.5;
+  z-index: 0;
+  animation: glowPulse 2.5s infinite ease-in-out;
+}
+
+@keyframes glowPulse {
+  0% { transform: scale(0.85); opacity: 0.35; }
+  50% { transform: scale(1.15); opacity: 0.6; }
+  100% { transform: scale(0.85); opacity: 0.35; }
+}
+
+.splash-logo {
+  width: 130px;
+  height: 130px;
+  object-fit: cover;
+  border-radius: 28px;
+  box-shadow: 0 15px 40px rgba(255, 26, 60, 0.3);
+  z-index: 1;
+  transition: transform 1.2s cubic-bezier(0.76, 0, 0.24, 1);
+  will-change: transform;
+}
+
+/* Shrinks and travels directly to the header logo position */
+.splash-logo.shrink-move {
+  transform: translate(calc(-50vw + 77px), calc(-50vh + 69px)) scale(0.323);
+}
+
+.splash-text-container {
+  position: absolute;
+  top: calc(50% - 150px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  z-index: 1;
+  transition: opacity 0.5s ease, transform 0.5s ease;
+}
+
+.splash-text-container.fade-out-text {
+  opacity: 0;
+  transform: translateY(-15px);
+}
+
+.splash-title {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 26px;
+  font-weight: 900;
+  letter-spacing: 5px;
+  color: #ffffff;
+  margin: 0;
+  animation: textFadeIn 0.8s ease-out forwards;
+}
+
+.splash-subtitle {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 3px;
+  color: #cbd5e1;
+  margin: 8px 0 0 0;
+  animation: textFadeIn 1.1s ease-out forwards;
+}
+
+@keyframes textFadeIn {
+  from { transform: translateY(15px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* Stitch Premium Suite custom elements */
+.glass-panel {
+  background: rgba(12, 18, 43, 0.75);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 26, 60, 0.15);
+}
+
+.glass-input {
+  background: rgba(8, 12, 28, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #f8fafc;
+  transition: all 0.3s ease;
+}
+
+.glass-input:focus {
+  outline: none;
+  border-color: #ff1a3c;
+  box-shadow: 0 0 15px rgba(255, 26, 60, 0.2);
+  background: rgba(12, 18, 43, 0.85);
+}
+
+.glass-input::placeholder {
+  color: #94a3b8;
+}
+
+.btn-primary {
+  background-color: #ff1a3c;
+  color: white;
+  transition: all 0.3s ease;
+}
+
+.btn-primary:hover {
+  box-shadow: 0 0 25px rgba(255, 26, 60, 0.3);
+  background-color: #e60023;
+  transform: translateY(-1px);
+}
+
+.btn-secondary {
+  background: rgba(8, 12, 28, 0.6);
+  border: 1px solid #ff1a3c;
+  color: #ffb3b0;
+  transition: all 0.3s ease;
+}
+
+.btn-secondary:hover {
+  background: rgba(255, 26, 60, 0.1);
+  box-shadow: 0 0 15px rgba(255, 26, 60, 0.15);
+}

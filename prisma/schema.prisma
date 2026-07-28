@@ -1,0 +1,54 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Modelo de Empresa (ex: Limpeza, TI, Segurança)
+model Empresa {
+  id        String        @id @default(uuid())
+  nome      String        @unique
+  pessoas   Colaborador[]
+
+  @@map("tb_empresas")
+}
+
+// Cadastro Geral de Colaboradores e Prestadores
+model Colaborador {
+  id           String           @id @default(uuid())
+  nomeCompleto String           @map("nome_completo")
+  cpf          String           @unique
+  fotoUrl      String?          @map("foto_url")
+  empresaId    String           @map("id_empresa")
+  empresa      Empresa          @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  registros    RegistroAcesso[]
+
+  @@map("tb_colaboradores")
+}
+
+// Histórico de Movimentação Diária e Auditoria
+model RegistroAcesso {
+  id                     String      @id @default(uuid())
+  colaboradorId          String      @map("id_colaborador")
+  colaborador            Colaborador @relation(fields: [colaboradorId], references: [id], onDelete: Cascade)
+  
+  // Dados de Entrada (Check-in)
+  timestampEntrada       DateTime    @default(now()) @map("timestamp_entrada")
+  operadorEntrada        String      @map("operador_entrada")
+  descricaoServico       String      @map("descricao_servico") // Texto aberto obrigatório
+  
+  // Dados de Saída (Check-out)
+  timestampSaida         DateTime?   @map("timestamp_saida")
+  operadorSaida          String?     @map("operador_saida")
+  servicosExtras         String?     @map("servicos_extras")   // Texto aberto opcional
+  
+  // Status de Controle Rápido
+  status                 String      @default("DENTRO") // DENTRO ou FORA
+
+  @@map("tb_registro_acesso")
+}

@@ -22,6 +22,52 @@ interface EmpresaInfo {
 
 export default function GestaoCadastros() {
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Função nativa para comprimir imagem usando HTML5 Canvas
+  const comprimirImagem = (file: File, maxWidth: number = 300, quality: number = 0.75): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = (event) => {
+        const img = new Image();
+        img.src = event.target?.result as string;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > maxWidth) {
+              height = Math.round((height * maxWidth) / width);
+              width = maxWidth;
+            }
+          } else {
+            if (height > maxWidth) {
+              width = Math.round((width * maxWidth) / height);
+              height = maxWidth;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            reject(new Error('Não foi possível obter o contexto 2D do Canvas.'));
+            return;
+          }
+
+          ctx.drawImage(img, 0, 0, width, height);
+          
+          const compressedBase64 = canvas.toDataURL('image/jpeg', quality);
+          resolve(compressedBase64);
+        };
+        img.onerror = (err) => reject(err);
+      };
+      reader.onerror = (err) => reject(err);
+    });
+  };
+
   const [colaboradores, setColaboradores] = useState<ColaboradorComStatus[]>([]);
   const [empresas, setEmpresas] = useState<EmpresaInfo[]>([]);
   const [activeTab, setActiveTab] = useState<'colab' | 'emp' | 'lote' | 'editar'>('colab');
@@ -548,15 +594,17 @@ export default function GestaoCadastros() {
     }
   };
 
-  const handleEditFotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleEditFotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setEditFotoBase64(reader.result as string);
-    };
-    reader.readAsDataURL(file);
+    try {
+      const base64Comprimido = await comprimirImagem(file);
+      setEditFotoBase64(base64Comprimido);
+    } catch (err) {
+      console.error('Erro ao comprimir imagem de edição:', err);
+      alert('Erro ao processar imagem.');
+    }
   };
 
   // Ações de Fluxo Direto pelo Modal do Olho
@@ -837,15 +885,17 @@ export default function GestaoCadastros() {
                   <input
                     type="file"
                     accept="image/*"
-                    onChange={(e) => {
+                    onChange={async (e) => {
                       const file = e.target.files?.[0];
                       if (file) {
-                        const reader = new FileReader();
-                        reader.onloadend = () => {
-                          setFotoBase64(reader.result as string);
-                          setFotoUrlColab(reader.result as string); // Salva base64 na coluna de URL (suporta long text)
-                        };
-                        reader.readAsDataURL(file);
+                        try {
+                          const base64Comprimido = await comprimirImagem(file);
+                          setFotoBase64(base64Comprimido);
+                          setFotoUrlColab(base64Comprimido);
+                        } catch (err) {
+                          console.error('Erro ao comprimir imagem:', err);
+                          alert('Erro ao processar imagem.');
+                        }
                       }
                     }}
                     className="px-4 py-2.5 rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(5,8,18,0.7)] text-slate-300 text-[12px] file:mr-4 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-[11px] file:font-bold file:bg-[var(--accent-red)] file:text-white file:cursor-pointer hover:file:bg-[var(--accent-red-hover)] transition-all cursor-pointer"

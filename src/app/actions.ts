@@ -206,6 +206,55 @@ export async function getEmpresas() {
 // Imagem SVG padrão de avatar temporário para perfis sem foto carregada
 const FOTO_TEMPORARIA_AVATAR = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2364748b'><path d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z'/></svg>";
 
+// Função auxiliar para fazer upload da imagem comprimida para o Supabase Storage
+async function uploadFotoParaSupabaseStorage(colaboradorCpf: string, fotoBase64: string): Promise<string> {
+  const SUPABASE_URL = process.env.SUPABASE_URL;
+  const SUPABASE_KEY = process.env.SUPABASE_KEY;
+
+  if (!SUPABASE_URL || !SUPABASE_KEY) {
+    return fotoBase64;
+  }
+
+  if (fotoBase64.startsWith('http') || fotoBase64.startsWith('data:image/svg+xml')) {
+    return fotoBase64;
+  }
+
+  try {
+    const match = fotoBase64.match(/^data:(image\/\w+);base64,(.+)$/);
+    if (!match) return fotoBase64;
+    
+    const contentType = match[1];
+    const base64Data = match[2];
+    const buffer = Buffer.from(base64Data, 'base64');
+    
+    const extension = contentType.split('/')[1] || 'jpg';
+    const fileName = `${colaboradorCpf}.${extension}`;
+    const uploadUrl = `${SUPABASE_URL}/storage/v1/object/fotos-colaboradores/${fileName}`;
+    
+    const uploadResponse = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'API-KEY': SUPABASE_KEY,
+        'Content-Type': contentType,
+        'x-upsert': 'true'
+      },
+      body: buffer
+    });
+
+    if (!uploadResponse.ok) {
+      const errorText = await uploadResponse.text();
+      console.warn('Erro ao fazer upload no Supabase Storage:', errorText);
+      return fotoBase64;
+    }
+
+    return `${SUPABASE_URL}/storage/v1/object/public/fotos-colaboradores/${fileName}`;
+  } catch (err) {
+    console.error('Erro na integração do Supabase Storage:', err);
+    return fotoBase64;
+  }
+}
+
 // 6. Cadastrar novo colaborador
 export async function cadastrarColaborador(data: {
   nomeCompleto: string;
@@ -223,12 +272,16 @@ export async function cadastrarColaborador(data: {
       throw new Error('Já existe um colaborador cadastrado com este CPF.');
     }
 
+    const fotoFinal = data.fotoUrl 
+      ? await uploadFotoParaSupabaseStorage(data.cpf, data.fotoUrl)
+      : FOTO_TEMPORARIA_AVATAR;
+
     await prisma.colaborador.create({
       data: {
         nomeCompleto: data.nomeCompleto,
         cpf: data.cpf,
         empresaId: data.empresaId,
-        fotoUrl: data.fotoUrl || FOTO_TEMPORARIA_AVATAR
+        fotoUrl: fotoFinal
       }
     });
 
@@ -306,12 +359,16 @@ export async function importarColaboradoresLote(
         continue;
       }
 
+      const fotoFinal = colab.fotoUrl 
+        ? await uploadFotoParaSupabaseStorage(colab.cpf, colab.fotoUrl)
+        : FOTO_TEMPORARIA_AVATAR;
+
       await prisma.colaborador.create({
         data: {
           nomeCompleto: colab.nomeCompleto,
           cpf: colab.cpf,
           empresaId: targetEmpresaId,
-          fotoUrl: colab.fotoUrl || FOTO_TEMPORARIA_AVATAR
+          fotoUrl: fotoFinal
         }
       });
       criados++;
@@ -349,13 +406,17 @@ export async function atualizarColaborador(
       throw new Error('Já existe outro colaborador cadastrado com este CPF.');
     }
 
+    const fotoFinal = data.fotoUrl 
+      ? await uploadFotoParaSupabaseStorage(data.cpf, data.fotoUrl)
+      : undefined;
+
     await prisma.colaborador.update({
       where: { id },
       data: {
         nomeCompleto: data.nomeCompleto,
         cpf: data.cpf,
         empresaId: data.empresaId,
-        fotoUrl: data.fotoUrl || undefined
+        fotoUrl: fotoFinal
       }
     });
 

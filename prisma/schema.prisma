@@ -80,3 +80,62 @@ model RegistroChave {
 
   @@map("tb_registro_chaves")
 }
+
+// Equipamentos de CFTV / Segurança Eletrônica
+model EquipamentoCftv {
+  id        String   @id @default(uuid())
+  nome      String   @unique
+  tipo      String   // LPR, RECONHECIMENTO_FACIAL, ALARME_MOVIMENTO, CAMERA_AUDIO, BODY_CAM, CFTV_PADRAO
+  status    String   @default("DISPONIVEL") // DISPONIVEL (Funcionando), MANUTENCAO
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("tb_equipamentos_cftv")
+}
+
+// Defeitos abertos em equipamentos de CFTV
+model DefeitoCftv {
+  id              String   @id @default(uuid())
+  equipamentoNome String   @map("equipamento_nome")
+  descricao       String   @map("descricao")
+  operador        String   @map("operador")
+  dataHora        DateTime @default(now()) @map("data_hora")
+
+  @@map("tb_defeitos_cftv")
+}
+
+// Auditorias e Sinalizações de Imagens CFTV
+model AuditoriaImagem {
+  id               String   @id @default(uuid())
+  cameraNome       String   @map("camera_nome")
+  timestampTrecho  DateTime @map("timestamp_trecho")
+  descricaoFato    String   @map("descricao_fato")
+  operador         String   @map("operador")
+  tipo             String   @default("AUDITORIA") // AUDITORIA, SINALIZACAO_IMPORTANTE
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  @@map("tb_auditorias_imagens")
+}
+
+// Cautela e Controle de Extintores Reserva
+model ControleExtintor {
+  id                 String   @id @default(uuid())
+  tipoMovimentacao   String   @map("tipo_movimentacao") // ENTREGA, RECEBIMENTO
+  responsavelExterno String   @map("responsavel_externo")
+  operadorCco        String   @map("operador_cco")
+  motivo             String   @map("motivo")
+  timestamp          DateTime @default(now()) @map("timestamp")
+
+  @@map("tb_controle_extintores")
+}
+
+// Livro de Ocorrências e Eventos CCO
+model Ocorrencia {
+  id         String   @id @default(uuid())
+  tipo       String   @default("GERAL") // GERAL, EVENTO
+  nomeEvento String?  @map("nome_evento") // Preenchido apenas se tipo === EVENTO
+  operador   String   @map("operador")
+  detalhes   String   @map("detalhes")
+  timestamp  DateTime @default(now()) @map("timestamp")
+
+  @@map("tb_ocorrencias")
+}

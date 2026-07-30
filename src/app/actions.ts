@@ -677,3 +677,390 @@ export async function getHistoricoChaves(): Promise<HistoricoChaveInfo[]> {
     throw new Error('Falha ao recuperar histórico de auditoria de chaves.');
   }
 }
+
+// ==========================================
+// MÓDULO DE ATIVOS E OPERAÇÕES DO CCO
+// ==========================================
+
+export interface EquipamentoCftvInfo {
+  id: string;
+  nome: string;
+  tipo: string;
+  status: string;
+  createdAt: Date;
+}
+
+export interface DefeitoCftvInfo {
+  id: string;
+  equipamentoNome: string;
+  descricao: string;
+  operador: string;
+  dataHora: Date;
+}
+
+export interface AuditoriaImagemInfo {
+  id: string;
+  cameraNome: string;
+  timestampTrecho: Date;
+  descricaoFato: string;
+  operador: string;
+  tipo: string;
+  createdAt: Date;
+}
+
+export interface ControleExtintorInfo {
+  id: string;
+  tipoMovimentacao: string;
+  responsavelExterno: string;
+  operadorCco: string;
+  motivo: string;
+  timestamp: Date;
+}
+
+export interface OcorrenciaInfo {
+  id: string;
+  tipo: string;
+  nomeEvento: string | null;
+  operador: string;
+  detalhes: string;
+  timestamp: Date;
+}
+
+const CAMERAS_PADRAO_SEED = [
+  { nome: "Câmera Portão 1 (LPR)", tipo: "LPR" },
+  { nome: "Câmera Entrada Social (Facial)", tipo: "RECONHECIMENTO_FACIAL" },
+  { nome: "Sensor Estacionamento CCO (Movimento)", tipo: "ALARME_MOVIMENTO" },
+  { nome: "Câmera Cabine Principal (Áudio)", tipo: "CAMERA_AUDIO" },
+  { nome: "Body Cam Supervisor CCO 1", tipo: "BODY_CAM" },
+  { nome: "Câmera Geral Docas P5", tipo: "CFTV_PADRAO" },
+  { nome: "Câmera Adm Corredor Central", tipo: "CFTV_PADRAO" }
+];
+
+// 16. Obter equipamentos de CFTV (com seeding automático)
+export async function getEquipamentosCftv(): Promise<EquipamentoCftvInfo[]> {
+  try {
+    let equipamentos = await prisma.equipamentoCftv.findMany({
+      orderBy: { nome: 'asc' }
+    });
+
+    if (equipamentos.length === 0) {
+      console.log('Populando tabela tb_equipamentos_cftv com seeding inicial...');
+      await prisma.equipamentoCftv.createMany({
+        data: CAMERAS_PADRAO_SEED.map(cam => ({
+          nome: cam.nome,
+          tipo: cam.tipo,
+          status: 'DISPONIVEL'
+        }))
+      });
+
+      equipamentos = await prisma.equipamentoCftv.findMany({
+        orderBy: { nome: 'asc' }
+      });
+    }
+
+    return equipamentos;
+  } catch (error: any) {
+    console.error('Erro ao buscar CFTVs:', error);
+    throw new Error('Falha ao carregar câmeras.');
+  }
+}
+
+// 17. Cadastrar equipamento de CFTV
+export async function cadastrarEquipamentoCftv(
+  nome: string,
+  tipo: string
+): Promise<void> {
+  try {
+    const existente = await prisma.equipamentoCftv.findUnique({
+      where: { nome }
+    });
+
+    if (existente) {
+      throw new Error('Já existe um equipamento cadastrado com este nome.');
+    }
+
+    await prisma.equipamentoCftv.create({
+      data: {
+        nome,
+        tipo,
+        status: 'DISPONIVEL'
+      }
+    });
+
+    revalidatePath('/operacoes');
+  } catch (error: any) {
+    console.error('Erro ao cadastrar câmera:', error);
+    throw new Error(error.message || 'Falha ao salvar câmera.');
+  }
+}
+
+// 18. Registrar defeito em equipamento (Abertura de Chamado)
+export async function registrarDefeitoCftv(
+  equipamentoNome: string,
+  descricao: string,
+  operador: string
+): Promise<void> {
+  try {
+    const equipamento = await prisma.equipamentoCftv.findFirst({
+      where: { nome: equipamentoNome }
+    });
+
+    if (!equipamento) throw new Error('Equipamento não encontrado.');
+
+    // Atualiza status do equipamento para MANUTENCAO
+    await prisma.equipamentoCftv.update({
+      where: { id: equipamento.id },
+      data: { status: 'MANUTENCAO' }
+    });
+
+    // Grava registro de defeito
+    await prisma.defeitoCftv.create({
+      data: {
+        equipamentoNome,
+        descricao,
+        operador,
+        dataHora: new Date()
+      }
+    });
+
+    revalidatePath('/operacoes');
+  } catch (error: any) {
+    console.error('Erro ao registrar defeito:', error);
+    throw new Error(error.message || 'Falha ao registrar defeito.');
+  }
+}
+
+// 19. Resolver defeito em equipamento (Retorno ao funcionamento)
+export async function resolverDefeitoCftv(
+  id: string,
+  operador: string
+): Promise<void> {
+  try {
+    const equipamento = await prisma.equipamentoCftv.findUnique({
+      where: { id }
+    });
+    if (!equipamento) throw new Error('Equipamento não encontrado.');
+
+    // Voltar status do equipamento para DISPONIVEL
+    await prisma.equipamentoCftv.update({
+      where: { id },
+      data: { status: 'DISPONIVEL' }
+    });
+
+    // Deletar o registro de defeito ativo
+    await prisma.defeitoCftv.deleteMany({
+      where: { equipamentoNome: equipamento.nome }
+    });
+
+    revalidatePath('/operacoes');
+  } catch (error: any) {
+    console.error('Erro ao resolver defeito:', error);
+    throw new Error(error.message || 'Falha ao resolver defeito.');
+  }
+}
+
+// 20. Listar todos os defeitos reportados
+export async function getDefeitosCftv(): Promise<DefeitoCftvInfo[]> {
+  try {
+    return prisma.defeitoCftv.findMany({
+      orderBy: { dataHora: 'desc' }
+    });
+  } catch (error: any) {
+    console.error('Erro ao buscar defeitos:', error);
+    throw new Error('Falha ao recuperar histórico de defeitos.');
+  }
+}
+
+// 21. Obter auditorias e sinalizações de imagens
+export async function getAuditoriasImagens(): Promise<AuditoriaImagemInfo[]> {
+  try {
+    return prisma.auditoriaImagem.findMany({
+      orderBy: { createdAt: 'desc' }
+    });
+  } catch (error: any) {
+    console.error('Erro ao buscar auditorias de imagem:', error);
+    throw new Error('Falha ao carregar auditorias de imagens.');
+  }
+}
+
+// 22. Cadastrar auditoria ou sinalização de imagem
+export async function cadastrarAuditoriaImagem(data: {
+  cameraNome: string;
+  timestampTrecho: Date;
+  descricaoFato: string;
+  operador: string;
+  tipo: 'AUDITORIA' | 'SINALIZACAO_IMPORTANTE';
+}): Promise<void> {
+  try {
+    await prisma.auditoriaImagem.create({
+      data: {
+        cameraNome: data.cameraNome,
+        timestampTrecho: data.timestampTrecho,
+        descricaoFato: data.descricaoFato,
+        operador: data.operador,
+        tipo: data.tipo
+      }
+    });
+
+    revalidatePath('/operacoes');
+  } catch (error: any) {
+    console.error('Erro ao cadastrar auditoria:', error);
+    throw new Error('Falha ao salvar auditoria de imagem.');
+  }
+}
+
+// 23. Obter movimentações de extintores
+export async function getControleExtintores(): Promise<ControleExtintorInfo[]> {
+  try {
+    return prisma.controleExtintor.findMany({
+      orderBy: { timestamp: 'desc' }
+    });
+  } catch (error: any) {
+    console.error('Erro ao buscar controle de extintores:', error);
+    throw new Error('Falha ao carregar controle de extintores.');
+  }
+}
+
+// 24. Cadastrar movimentação de extintor
+export async function registrarMovimentacaoExtintor(data: {
+  tipoMovimentacao: 'ENTREGA' | 'RECEBIMENTO';
+  responsavelExterno: string;
+  operadorCco: string;
+  motivo: string;
+}): Promise<void> {
+  try {
+    await prisma.controleExtintor.create({
+      data: {
+        tipoMovimentacao: data.tipoMovimentacao,
+        responsavelExterno: data.responsavelExterno,
+        operadorCco: data.operadorCco,
+        motivo: data.motivo
+      }
+    });
+
+    revalidatePath('/operacoes');
+  } catch (error: any) {
+    console.error('Erro ao registrar extintor:', error);
+    throw new Error('Falha ao registrar movimentação do extintor.');
+  }
+}
+
+// 25. Obter ocorrências
+export async function getOcorrencias(): Promise<OcorrenciaInfo[]> {
+  try {
+    return prisma.ocorrencia.findMany({
+      orderBy: { timestamp: 'desc' }
+    });
+  } catch (error: any) {
+    console.error('Erro ao buscar ocorrências:', error);
+    throw new Error('Falha ao carregar livro de ocorrências.');
+  }
+}
+
+// 26. Cadastrar ocorrência
+export async function cadastrarOcorrencia(data: {
+  tipo: 'GERAL' | 'EVENTO';
+  nomeEvento?: string;
+  operador: string;
+  detalhes: string;
+}): Promise<void> {
+  try {
+    await prisma.ocorrencia.create({
+      data: {
+        tipo: data.tipo,
+        nomeEvento: data.tipo === 'EVENTO' ? data.nomeEvento : null,
+        operador: data.operador,
+        detalhes: data.detalhes
+      }
+    });
+
+    revalidatePath('/operacoes');
+  } catch (error: any) {
+    console.error('Erro ao cadastrar ocorrência:', error);
+    throw new Error('Falha ao registrar ocorrência.');
+  }
+}
+
+// 27. Obter dados unificados para o relatório da Arena
+export async function getDadosRelatorioUnificado(dataInicio: Date, dataFim: Date) {
+  try {
+    const checkins = await prisma.registroAcesso.findMany({
+      where: {
+        timestampEntrada: {
+          gte: dataInicio,
+          lte: dataFim
+        }
+      },
+      include: {
+        colaborador: {
+          include: {
+            empresa: true
+          }
+        }
+      },
+      orderBy: { timestampEntrada: 'desc' }
+    });
+
+    const chavesMovimentadas = await prisma.registroChave.findMany({
+      where: {
+        timestamp: {
+          gte: dataInicio,
+          lte: dataFim
+        }
+      },
+      orderBy: { timestamp: 'desc' }
+    });
+
+    const ocorrencias = await prisma.ocorrencia.findMany({
+      where: {
+        timestamp: {
+          gte: dataInicio,
+          lte: dataFim
+        }
+      },
+      orderBy: { timestamp: 'desc' }
+    });
+
+    const auditorias = await prisma.auditoriaImagem.findMany({
+      where: {
+        createdAt: {
+          gte: dataInicio,
+          lte: dataFim
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    const defeitos = await prisma.defeitoCftv.findMany({
+      where: {
+        dataHora: {
+          gte: dataInicio,
+          lte: dataFim
+        }
+      },
+      orderBy: { dataHora: 'desc' }
+    });
+
+    const extintores = await prisma.controleExtintor.findMany({
+      where: {
+        timestamp: {
+          gte: dataInicio,
+          lte: dataFim
+        }
+      },
+      orderBy: { timestamp: 'desc' }
+    });
+
+    return {
+      checkins,
+      chavesMovimentadas,
+      ocorrencias,
+      auditorias,
+      defeitos,
+      extintores
+    };
+  } catch (error) {
+    console.error('Erro ao obter relatório unificado:', error);
+    throw new Error('Falha ao carregar relatório da Arena.');
+  }
+}

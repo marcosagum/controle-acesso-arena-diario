@@ -67,13 +67,13 @@ export default function SplashLoader({ onComplete }: SplashLoaderProps) {
 
         {/* Título e Subtítulo da Arena */}
         <div className={`splash-text-container ${fadeOutText ? 'fade-out-text' : ''}`}>
-          <h1 className="splash-title">FARMASI ARENA</h1>
-          <p className="splash-subtitle">SISTEMA DE CREDENCIAMENTO</p>
+          <h1 className="splash-title">CCO</h1>
+          <p className="splash-subtitle">GESTÃO DE OPERAÇÕES</p>
         </div>
 
         {/* Logotipo que encolhe e viaja até o header */}
         <img
-          src="/logo_gl.png"
+          src="/logo_gl.jpg"
           alt="GL Events Logo"
           className={`splash-logo ${shrink ? 'shrink-move' : ''}`}
         />

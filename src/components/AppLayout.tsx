@@ -61,14 +61,14 @@ export default function AppLayout({ children }: AppLayoutProps) {
             <div className="w-[42px] h-[42px] relative shrink-0 overflow-hidden rounded-[9px]">
               {/* Espaço reservado para o logo real que surge após o splash */}
               <img
-                src="/logo_gl.png"
+                src="/logo_gl.jpg"
                 alt="GL Logo"
                 className="w-full h-full object-cover"
               />
             </div>
             <div className="flex flex-col">
-              <span className="text-[14px] font-black tracking-[1.5px] text-white">FARMASI ARENA</span>
-              <span className="text-[9px] font-bold tracking-[0.5px] text-[var(--accent-red)] uppercase leading-snug">Sistema de credenciamento</span>
+              <span className="text-[14px] font-black tracking-[1.5px] text-white">CCO</span>
+              <span className="text-[9px] font-bold tracking-[0.5px] text-[var(--accent-red)] uppercase leading-snug">Gestão de Operações</span>
             </div>
           </div>
 

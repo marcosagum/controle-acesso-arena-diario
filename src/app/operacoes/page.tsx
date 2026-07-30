@@ -35,6 +35,7 @@ export default function OperacoesPage() {
   const [extintores, setExtintores] = useState<ControleExtintorInfo[]>([]);
   const [ocorrencias, setOcorrencias] = useState<OcorrenciaInfo[]>([]);
   const [ocorrenciaSelecionadaDetalhe, setOcorrenciaSelecionadaDetalhe] = useState<OcorrenciaInfo | null>(null);
+  const [fotoVisualizarLightbox, setFotoVisualizarLightbox] = useState<string | null>(null);
 
   // Estados de loading
   const [loading, setLoading] = useState(true);
@@ -170,6 +171,7 @@ export default function OperacoesPage() {
     setTipoExportacaoDesejada(null);
     setPassoFechamento(null);
     setAnoConfirmacao('');
+    setFotoVisualizarLightbox(null);
   };
 
   // Processar e comprimir imagem da ocorrência localmente via HTML5 Canvas
@@ -197,48 +199,6 @@ export default function OperacoesPage() {
       img.src = event.target?.result as string;
     };
     reader.readAsDataURL(file);
-  };
-
-  // Abre imagem em tamanho real tratando Base64/DataURIs contra bloqueios do navegador
-  const abrirImagemTamanhoReal = (fotoUrl: string) => {
-    if (!fotoUrl) return;
-
-    if (fotoUrl.startsWith('data:')) {
-      const novaAba = window.open();
-      if (novaAba) {
-        novaAba.document.write(`
-          <html>
-            <head>
-              <title>Evidência Fotográfica CCO</title>
-              <style>
-                body {
-                  margin: 0;
-                  background-color: #03050c;
-                  display: flex;
-                  align-items: center;
-                  justify-content: center;
-                  min-height: 100vh;
-                  font-family: system-ui, sans-serif;
-                }
-                img {
-                  max-width: 95%;
-                  max-height: 95vh;
-                  box-shadow: 0 0 35px rgba(0,0,0,0.9);
-                  border-radius: 12px;
-                  border: 1px solid rgba(255,255,255,0.05);
-                }
-              </style>
-            </head>
-            <body>
-              <img src="${fotoUrl}" alt="Evidência Fotográfica CCO" />
-            </body>
-          </html>
-        `);
-        novaAba.document.close();
-      }
-    } else {
-      window.open(fotoUrl, '_blank');
-    }
   };
 
   // Fluxo de Reportar Falha (Abertura de Chamado)
@@ -1196,7 +1156,7 @@ export default function OperacoesPage() {
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  abrirImagemTamanhoReal(o.fotoUrl || '');
+                                  setFotoVisualizarLightbox(o.fotoUrl);
                                 }}
                                 className="text-[var(--accent-red)] hover:text-white transition-all inline-flex items-center justify-center cursor-pointer bg-transparent border-none p-0 outline-none"
                                 title="Visualizar Evidência Fotográfica"
@@ -2249,11 +2209,11 @@ export default function OperacoesPage() {
                   />
                   <button
                     type="button"
-                    onClick={() => abrirImagemTamanhoReal(ocorrenciaSelecionadaDetalhe.fotoUrl || '')}
+                    onClick={() => setFotoVisualizarLightbox(ocorrenciaSelecionadaDetalhe.fotoUrl)}
                     className="w-full py-2.5 rounded-xl border border-slate-800 hover:border-[var(--accent-red)] bg-slate-950/40 hover:bg-slate-900 text-slate-400 hover:text-white text-[11px] font-bold uppercase tracking-[0.5px] flex items-center justify-center gap-1.5 transition-all cursor-pointer"
                   >
-                    <span className="material-symbols-outlined text-[16px]">open_in_new</span>
-                    Visualizar em Tamanho Real
+                    <span className="material-symbols-outlined text-[16px]">zoom_in</span>
+                    Ampliar Imagem (Zoom)
                   </button>
                 </div>
               ) : (
@@ -2275,6 +2235,31 @@ export default function OperacoesPage() {
               </button>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* ================================================= */}
+      {/* LIGHTBOX DE VISUALIZAÇÃO DE IMAGEM EM TELA CHEIA  */}
+      {/* ================================================= */}
+      {fotoVisualizarLightbox && (
+        <div 
+          onClick={() => setFotoVisualizarLightbox(null)}
+          className="fixed inset-0 bg-black/95 flex flex-col items-center justify-center z-[99999] p-4 cursor-zoom-out no-print"
+        >
+          <div className="relative max-w-4xl w-full flex flex-col gap-3" onClick={(e) => e.stopPropagation()}>
+            <button 
+              onClick={() => setFotoVisualizarLightbox(null)}
+              className="absolute -top-10 right-0 text-white/70 hover:text-white transition-all text-[12px] font-bold uppercase tracking-[1px] flex items-center gap-1 cursor-pointer bg-transparent border-none outline-none"
+            >
+              <span className="material-symbols-outlined text-[18px]">close</span>
+              Fechar
+            </button>
+            <img 
+              src={fotoVisualizarLightbox} 
+              alt="Evidência Fotográfica Ampliada" 
+              className="w-full max-h-[80vh] object-contain rounded-xl border border-white/10 shadow-[0_0_50px_rgba(0,0,0,0.9)]"
+            />
           </div>
         </div>
       )}

@@ -759,15 +759,17 @@ const SEED_NVRS = [
 // 16. Obter NVRs e Câmeras conectadas (com seeding automático das 86 câmeras)
 export async function getNvrsComCameras(): Promise<NvrInfo[]> {
   try {
-    let nvrs = await prisma.nvr.findMany({
-      include: { cameras: { orderBy: { codigo: 'asc' } } },
-      orderBy: { codigo: 'asc' }
-    });
+    const totalCamerasNoBanco = await prisma.cameraCftv.count();
 
-    // Se não houver nenhum NVR, roda o seeding inicial completo da Arena
-    if (nvrs.length === 0) {
-      console.log('Iniciando Seeding Operacional das 86 Câmeras da Arena...');
+    // Se a contagem de câmeras for diferente de 86, força a limpeza e re-seeding operacional completo
+    if (totalCamerasNoBanco !== 86) {
+      console.log('Limpando e populando tabela de NVRs e Câmeras da Arena (86 unidades)...');
       
+      // Limpeza segura respeitando as chaves estrangeiras
+      await prisma.historicoQueda.deleteMany({});
+      await prisma.cameraCftv.deleteMany({});
+      await prisma.nvr.deleteMany({});
+
       for (const nvrSeed of SEED_NVRS) {
         const nvrCriado = await prisma.nvr.create({
           data: {
@@ -809,13 +811,12 @@ export async function getNvrsComCameras(): Promise<NvrInfo[]> {
           });
         }
       }
-
-      // Busca novamente os dados populados
-      nvrs = await prisma.nvr.findMany({
-        include: { cameras: { orderBy: { codigo: 'asc' } } },
-        orderBy: { codigo: 'asc' }
-      });
     }
+
+    const nvrs = await prisma.nvr.findMany({
+      include: { cameras: { orderBy: { codigo: 'asc' } } },
+      orderBy: { codigo: 'asc' }
+    });
 
     return nvrs as NvrInfo[];
   } catch (error) {

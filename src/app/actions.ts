@@ -1267,3 +1267,84 @@ export async function getDadosRelatorioUnificado(dataInicio: Date, dataFim: Date
     throw new Error('Falha ao carregar relatório da Arena.');
   }
 }
+
+// 28. Realizar limpeza anual do banco de dados (Backup já exportado)
+export async function realizarLimpezaAnualBanco(dataInicio: Date, dataFim: Date): Promise<{ deletados: number }> {
+  try {
+    // 1. Logs de Acessos
+    const countAcessos = await prisma.registroAcesso.deleteMany({
+      where: {
+        timestampEntrada: {
+          gte: dataInicio,
+          lte: dataFim
+        }
+      }
+    });
+
+    // 2. Histórico de Chaves
+    const countChaves = await prisma.registroChave.deleteMany({
+      where: {
+        timestamp: {
+          gte: dataInicio,
+          lte: dataFim
+        }
+      }
+    });
+
+    // 3. Livro de Ocorrências
+    const countOcorrencias = await prisma.ocorrencia.deleteMany({
+      where: {
+        timestamp: {
+          gte: dataInicio,
+          lte: dataFim
+        }
+      }
+    });
+
+    // 4. Auditoria de Imagens
+    const countAuditorias = await prisma.auditoriaImagem.deleteMany({
+      where: {
+        timestampTrecho: {
+          gte: dataInicio,
+          lte: dataFim
+        }
+      }
+    });
+
+    // 5. Cautela de Extintores
+    const countExtintores = await prisma.controleExtintor.deleteMany({
+      where: {
+        timestamp: {
+          gte: dataInicio,
+          lte: dataFim
+        }
+      }
+    });
+
+    // 6. Histórico de Quedas CFTV
+    const countQuedas = await prisma.historicoQueda.deleteMany({
+      where: {
+        timestampQueda: {
+          gte: dataInicio,
+          lte: dataFim
+        }
+      }
+    });
+
+    const totalDeletados = 
+      countAcessos.count + 
+      countChaves.count + 
+      countOcorrencias.count + 
+      countAuditorias.count + 
+      countExtintores.count + 
+      countQuedas.count;
+
+    console.log(`[CCO LIMPEZA] Foram apagados ${totalDeletados} registros históricos do período.`);
+    
+    revalidatePath('/operacoes');
+    return { deletados: totalDeletados };
+  } catch (error: any) {
+    console.error('Erro na limpeza anual do banco:', error);
+    throw new Error('Falha ao realizar a limpeza anual dos dados.');
+  }
+}

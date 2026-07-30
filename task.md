@@ -1,0 +1,7 @@
+- [ ] Criar Server Action realizarLimpezaAnualBanco em [actions.ts](file:///C:/Users/marcos.agum/.gemini/antigravity/scratch/controle-acesso-arena/src/app/actions.ts)
+- [ ] Implementar a função autoAjustarColunas em [page.tsx](file:///C:/Users/marcos.agum/.gemini/antigravity/scratch/controle-acesso-arena/src/app/operacoes/page.tsx) e aplicar nas 6 abas do Excel
+- [ ] Criar modal de escolha de exportação (Parcial vs Fechamento Anual) ao clicar nos botões de Excel e PDF
+- [ ] Adicionar modal de Confirmação Dupla (digitando o ano do fechamento) para o Fechamento Anual
+- [ ] Integrar fluxo de backup compulsório seguido de limpeza em [page.tsx](file:///C:/Users/marcos.agum/.gemini/antigravity/scratch/controle-acesso-arena/src/app/operacoes/page.tsx)
+- [ ] Validar integridade do build da aplicação
+- [ ] Enviar atualizações para o GitHub e implantar na Vercel

@@ -15,6 +15,7 @@ import {
   getOcorrencias,
   cadastrarOcorrencia,
   getDadosRelatorioUnificado,
+  realizarLimpezaAnualBanco,
   NvrInfo,
   CameraCftvInfo,
   HistoricoQuedaInfo,
@@ -44,7 +45,7 @@ export default function OperacoesPage() {
   });
 
   // Estados de Modais
-  const [modalAberto, setModalAberto] = useState<'reportar_falha' | 'concluir_reparo' | 'nova_auditoria' | 'novo_extintor' | 'nova_ocorrencia' | null>(null);
+  const [modalAberto, setModalAberto] = useState<'reportar_falha' | 'concluir_reparo' | 'nova_auditoria' | 'novo_extintor' | 'nova_ocorrencia' | 'assistente_exportacao' | null>(null);
   
   // Seleções para modais de Câmera
   const [selecionadaCameraId, setSelecionadaCameraId] = useState('');
@@ -87,6 +88,11 @@ export default function OperacoesPage() {
   const [incluirAuditorias, setIncluirAuditorias] = useState(true);
   const [incluirExtintores, setIncluirExtintores] = useState(true);
 
+  // Estados do Assistente de Exportação / Fechamento
+  const [tipoExportacaoDesejada, setTipoExportacaoDesejada] = useState<'EXCEL' | 'PDF' | null>(null);
+  const [passoFechamento, setPassoFechamento] = useState<'ESCOLHA' | 'CONFIRMACAO_LIMPEZA' | null>(null);
+  const [anoConfirmacao, setAnoConfirmacao] = useState('');
+
   // Carregar dados conforme a aba ativa
   useEffect(() => {
     carregarDados();
@@ -99,7 +105,6 @@ export default function OperacoesPage() {
     const intervalId = setInterval(async () => {
       try {
         await simularHeartbeatCftv();
-        // Atualiza os dados locais silenciosamente sem loading visível
         const n = await getNvrsComCameras();
         const q = await getHistoricoQuedas();
         setNvrs(n);
@@ -107,7 +112,7 @@ export default function OperacoesPage() {
       } catch (err) {
         console.error('Falha no batimento de pulsação do CFTV:', err);
       }
-    }, 6000); // Roda a cada 6 segundos
+    }, 6000);
 
     return () => clearInterval(intervalId);
   }, [activeTab, modalAberto]);
@@ -122,7 +127,7 @@ export default function OperacoesPage() {
         setQuedas(q);
       } else if (activeTab === 'auditoria') {
         const a = await getAuditoriasImagens();
-        const n = await getNvrsComCameras(); // Usado para popular select de câmeras
+        const n = await getNvrsComCameras();
         setAuditorias(a);
         setNvrs(n);
       } else if (activeTab === 'extintores') {
@@ -161,6 +166,9 @@ export default function OperacoesPage() {
     setExtMotivo('');
     setOcDetalhes('');
     setOcFotoBase64('');
+    setTipoExportacaoDesejada(null);
+    setPassoFechamento(null);
+    setAnoConfirmacao('');
   };
 
   // Processar e comprimir imagem da ocorrência localmente via HTML5 Canvas
@@ -181,7 +189,6 @@ export default function OperacoesPage() {
         const ctx = canvas.getContext('2d');
         if (ctx) {
           ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          // Salva como JPG compactado a 75% (20 KB a 40 KB)
           const compressedBase64 = canvas.toDataURL('image/jpeg', 0.75);
           setOcFotoBase64(compressedBase64);
         }
@@ -351,113 +358,175 @@ export default function OperacoesPage() {
     });
   };
 
-  // Exportar dados em planilha Excel Multi-abas
-  const handleExportarExcel = () => {
-    if (!dadosRelatorio) {
-      alert('Por favor, consolide os dados primeiro clicando em "Consolidar Relatório".');
-      return;
-    }
+  // Função auxiliar de auto-ajuste de colunas para planilhas excel
+  const autoAjustarColunas = (ws: XLSX.WorkSheet, dados: any[]) => {
+    if (!dados || dados.length === 0) return;
+    const colunas = Object.keys(dados[0]);
+    const larguras = colunas.map(col => {
+      let maxLen = col.length;
+      dados.forEach(row => {
+        const val = row[col] ? String(row[col]) : '';
+        if (val.length > maxLen) {
+          maxLen = val.length;
+        }
+      });
+      // Adiciona uma margem de segurança de 4 caracteres, máximo 65
+      return { wch: Math.min(maxLen + 4, 65) };
+    });
+    ws['!cols'] = larguras;
+  };
 
+  // Exportar dados efetivos em planilha Excel Multi-abas com layout e cabeçalhos em caixa alta
+  const gerarExcelEfetivo = () => {
     try {
-      // 1. Criar novo Workbook
       const wb = XLSX.utils.book_new();
 
-      // 2. Aba Acessos Portaria (Check-ins/Outs)
+      // 1. Aba Acessos Portaria (Check-ins/Outs)
       if (incluirAcessos && dadosRelatorio.checkins) {
         const dadosAcessos = dadosRelatorio.checkins.map((x: any) => ({
-          'Nome Colaborador': x.colaborador.nomeCompleto,
+          'NOME COLABORADOR': x.colaborador.nomeCompleto,
           'CPF': x.colaborador.cpf,
-          'Empresa': x.colaborador.empresa.nome,
-          'Entrada (Data/Hora)': new Date(x.timestampEntrada).toLocaleString('pt-BR'),
-          'Serviço': x.descricaoServico,
-          'Operador Entrada': x.operadorEntrada,
-          'Saída (Data/Hora)': x.timestampSaida ? new Date(x.timestampSaida).toLocaleString('pt-BR') : 'Ainda na Arena',
-          'Serviços Extras': x.servicosExtras || '-',
-          'Operador Saída': x.operadorSaida || '-'
+          'EMPRESA': x.colaborador.empresa.nome,
+          'ENTRADA (DATA/HORA)': new Date(x.timestampEntrada).toLocaleString('pt-BR'),
+          'SERVIÇO PROGRAMADO': x.descricaoServico,
+          'OPERADOR ENTRADA': x.operadorEntrada,
+          'SAÍDA (DATA/HORA)': x.timestampSaida ? new Date(x.timestampSaida).toLocaleString('pt-BR') : 'Ainda na Arena',
+          'SERVIÇOS EXTRAS / OCORRÊNCIA': x.servicosExtras || '-',
+          'OPERADOR SAÍDA': x.operadorSaida || '-'
         }));
         const ws = XLSX.utils.json_to_sheet(dadosAcessos);
+        autoAjustarColunas(ws, dadosAcessos);
         XLSX.utils.book_append_sheet(wb, ws, 'Acessos Portaria');
       }
 
-      // 3. Aba Cautela de Chaves
+      // 2. Aba Cautela de Chaves
       if (incluirChaves && dadosRelatorio.chavesMovimentadas) {
         const dadosChaves = dadosRelatorio.chavesMovimentadas.map((ch: any) => ({
-          'Data/Hora': new Date(ch.timestamp).toLocaleString('pt-BR'),
-          'Código Chave': ch.chaveCodigo,
-          'Ação': ch.acao,
-          'Responsável/Portador': ch.responsavel,
-          'Operador CCO': ch.operador,
-          'Observações': ch.observacao || '-'
+          'DATA/HORA': new Date(ch.timestamp).toLocaleString('pt-BR'),
+          'CHAVE / FECHADURA': ch.chaveCodigo,
+          'AÇÃO': ch.acao,
+          'RESPONSÁVEL (RETIRADA/REPORTE)': ch.responsavel,
+          'OPERADOR CCO': ch.operador,
+          'JUSTIFICATIVA/OBSERVAÇÕES': ch.observacao || '-'
         }));
         const ws = XLSX.utils.json_to_sheet(dadosChaves);
+        autoAjustarColunas(ws, dadosChaves);
         XLSX.utils.book_append_sheet(wb, ws, 'Cautela de Chaves');
       }
 
-      // 4. Aba Livro de Ocorrências
+      // 3. Aba Livro de Ocorrências
       if (incluirOcorrencias && dadosRelatorio.ocorrencias) {
         const dadosOcorrencias = dadosRelatorio.ocorrencias.map((oc: any) => ({
-          'Data/Hora': new Date(oc.timestamp).toLocaleString('pt-BR'),
-          'Tipo': oc.tipo,
-          'Evento': oc.nomeEvento || '-',
-          'Operador CCO': oc.operador,
-          'Fatos Ocorridos': oc.detalhes,
-          'Link da Evidência': oc.fotoUrl || 'Sem Foto'
+          'DATA/HORA': new Date(oc.timestamp).toLocaleString('pt-BR'),
+          'TIPO': oc.tipo,
+          'EVENTO VINCULADO': oc.nomeEvento || '-',
+          'OPERADOR CCO': oc.operador,
+          'HISTÓRICO / FATOS OCORRIDOS': oc.detalhes,
+          'EVIDÊNCIA FOTOGRÁFICA': oc.fotoUrl || 'Sem Foto'
         }));
         const ws = XLSX.utils.json_to_sheet(dadosOcorrencias);
+        autoAjustarColunas(ws, dadosOcorrencias);
         XLSX.utils.book_append_sheet(wb, ws, 'Ocorrências');
       }
 
-      // 5. Aba Auditoria de Imagens
+      // 4. Aba Auditoria de Imagens
       if (incluirAuditorias && dadosRelatorio.auditorias) {
         const dadosAuditorias = dadosRelatorio.auditorias.map((aud: any) => ({
-          'Data Registro': new Date(aud.createdAt).toLocaleString('pt-BR'),
-          'Câmera/Equipamento': aud.cameraNome,
-          'Horário do Fato': new Date(aud.timestampTrecho).toLocaleString('pt-BR'),
-          'Tipo': aud.tipo,
-          'Fatos Observados': aud.descricaoFato,
-          'Operador CCO': aud.operador
+          'DATA REGISTRO': new Date(aud.createdAt).toLocaleString('pt-BR'),
+          'CÂMERA / EQUIPAMENTO': aud.cameraNome,
+          'HORÁRIO DO FATO': new Date(aud.timestampTrecho).toLocaleString('pt-BR'),
+          'TIPO': aud.tipo,
+          'FATOS OBSERVADOS': aud.descricaoFato,
+          'OPERADOR CCO': aud.operador
         }));
         const ws = XLSX.utils.json_to_sheet(dadosAuditorias);
+        autoAjustarColunas(ws, dadosAuditorias);
         XLSX.utils.book_append_sheet(wb, ws, 'Auditoria de Imagens');
       }
 
-      // 6. Aba Extintores Reserva
+      // 5. Aba Extintores Reserva
       if (incluirExtintores && dadosRelatorio.extintores) {
         const dadosExtintores = dadosRelatorio.extintores.map((ex: any) => ({
-          'Data/Hora': new Date(ex.timestamp).toLocaleString('pt-BR'),
-          'Tipo Movimentação': ex.tipoMovimentacao,
-          'Responsável Externo': ex.responsavelExterno,
-          'Operador CCO': ex.operadorCco,
-          'Motivo/Justificativa': ex.motivo
+          'DATA/HORA': new Date(ex.timestamp).toLocaleString('pt-BR'),
+          'MOVIMENTAÇÃO': ex.tipoMovimentacao,
+          'RESPONSÁVEL EXTERNO': ex.responsavelExterno,
+          'OPERADOR CCO': ex.operadorCco,
+          'MOTIVO / JUSTIFICATIVA': ex.motivo
         }));
         const ws = XLSX.utils.json_to_sheet(dadosExtintores);
+        autoAjustarColunas(ws, dadosExtintores);
         XLSX.utils.book_append_sheet(wb, ws, 'Extintores Reserva');
       }
 
-      // 7. Aba Defeitos/Quedas CFTV
+      // 6. Aba Defeitos/Quedas CFTV
       if (incluirCftv && dadosRelatorio.defeitos) {
         const dadosDefeitos = dadosRelatorio.defeitos.map((def: any) => ({
-          'Data/Hora Ocorrido': new Date(def.dataHora).toLocaleString('pt-BR'),
-          'Equipamento/Setor': def.equipamentoNome,
-          'Defeito/Histórico': def.descricao,
-          'Operador/Responsável': def.operador
+          'DATA/HORA OCORRIDO': new Date(def.dataHora).toLocaleString('pt-BR'),
+          'EQUIPAMENTO / SETOR': def.equipamentoNome,
+          'DESCRIÇÃO DA OCORRÊNCIA': def.descricao,
+          'OPERADOR / RESPONSÁVEL': def.operador
         }));
         const ws = XLSX.utils.json_to_sheet(dadosDefeitos);
+        autoAjustarColunas(ws, dadosDefeitos);
         XLSX.utils.book_append_sheet(wb, ws, 'Logs de Rede CFTV');
       }
 
-      // 8. Baixar o arquivo .xlsx
       const nomeArquivo = `Backup_Consolidado_CCO_${relDataInicio}_a_${relDataFim}.xlsx`;
       XLSX.writeFile(wb, nomeArquivo);
-      mostrarFeedback('sucesso', 'Planilha consolidada baixada com sucesso!');
+      mostrarFeedback('sucesso', 'Planilha Excel formatada e baixada com sucesso!');
     } catch (err) {
       console.error('Falha ao exportar planilha:', err);
       alert('Ocorreu um erro ao exportar os dados para o Excel.');
     }
   };
 
-  const dispararImpressao = () => {
-    window.print();
+  // Disparadores do Assistente
+  const handleDispararAssistente = (formato: 'EXCEL' | 'PDF') => {
+    if (!dadosRelatorio) {
+      alert('Consolide os dados do relatório primeiro informando o período.');
+      return;
+    }
+    setTipoExportacaoDesejada(formato);
+    setPassoFechamento('ESCOLHA');
+    setModalAberto('assistente_exportacao');
+  };
+
+  // Executa o download e em seguida apaga o cache físico do banco
+  const handleConfirmarFechamentoELimpeza = () => {
+    const anoDesejado = relDataFim.split('-')[0];
+    if (anoConfirmacao !== anoDesejado) {
+      alert(`Digite o ano de fechamento correto (${anoDesejado}) para confirmar.`);
+      return;
+    }
+
+    // 1. Gera o download de backup dependendo do formato escolhido
+    if (tipoExportacaoDesejada === 'EXCEL') {
+      gerarExcelEfetivo();
+    } else {
+      window.print();
+    }
+
+    // 2. Chama a action de limpeza anual
+    startTransition(async () => {
+      try {
+        const res = await realizarLimpezaAnualBanco(new Date(relDataInicio), new Date(relDataFim));
+        mostrarFeedback('sucesso', `Fechamento concluído! Backup gerado e ${res.deletados} registros de históricos foram expurgados.`);
+        fecharModais();
+        setDadosRelatorio(null); // Limpa o relatório da tela
+        carregarDados(); // Recarrega chaves, CFTV etc.
+      } catch (err: any) {
+        mostrarFeedback('erro', err.message || 'Erro ao realizar a limpeza física do banco.');
+      }
+    });
+  };
+
+  const handleConfirmarExportacaoParcial = () => {
+    if (tipoExportacaoDesejada === 'EXCEL') {
+      gerarExcelEfetivo();
+    } else {
+      window.print();
+    }
+    fecharModais();
   };
 
   // Métricas do CFTV
@@ -658,7 +727,6 @@ export default function OperacoesPage() {
                           </div>
 
                           <div className="flex items-center gap-5">
-                            {/* Status do NVR */}
                             <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-[0.5px] ${
                               isNvrOffline
                                 ? 'bg-red-500/10 text-red-500 border border-red-500/20'
@@ -667,7 +735,6 @@ export default function OperacoesPage() {
                               {isNvrOffline ? 'FALHA SETORIAL' : 'CONECTADO'}
                             </span>
 
-                            {/* Câmeras Ativas */}
                             <span className="text-[11px] font-mono font-bold text-slate-400">
                               {onlineCount} / {camerasNvr.length} Câmeras
                             </span>
@@ -794,7 +861,6 @@ export default function OperacoesPage() {
                     const isNvr = q.tipo === 'NVR';
                     const emAberto = q.timestampRetorno === null;
                     
-                    // Cálculo de MTTR formatado
                     let mttrTexto = 'Em andamento';
                     if (!emAberto && q.duracaoSegundos) {
                       const mins = Math.floor(q.duracaoSegundos / 60);
@@ -1177,14 +1243,14 @@ export default function OperacoesPage() {
               {/* Botões de Ação */}
               <div className="flex justify-end gap-3 no-print">
                 <button
-                  onClick={handleExportarExcel}
-                  className="px-6 py-3 rounded-xl text-[13px] font-bold bg-emerald-700 hover:bg-emerald-800 border border-emerald-600 text-white flex items-center gap-1.5 transition-all cursor-pointer shadow-[0_0_20px_rgba(16,185,129,0.15)]"
+                  onClick={() => handleDispararAssistente('EXCEL')}
+                  className="px-6 py-3 rounded-xl text-[13px] font-bold bg-emerald-750 hover:bg-emerald-850 border border-emerald-600 text-white flex items-center gap-1.5 transition-all cursor-pointer shadow-[0_0_20px_rgba(16,185,129,0.15)]"
                 >
                   <span className="material-symbols-outlined text-[18px]">table_view</span>
                   Exportar Planilha Excel (.xlsx)
                 </button>
                 <button
-                  onClick={dispararImpressao}
+                  onClick={() => handleDispararAssistente('PDF')}
                   className="px-6 py-3 rounded-xl text-[13px] font-bold bg-[#0f172a] hover:bg-[#1e293b] border border-slate-800 text-white flex items-center gap-1.5 transition-all cursor-pointer"
                 >
                   <span className="material-symbols-outlined text-[18px]">print</span>
@@ -1229,7 +1295,7 @@ export default function OperacoesPage() {
                           {dadosRelatorio.checkins.map((x: any) => (
                             <tr key={x.id} className="text-slate-300 print:text-black">
                               <td className="px-4 py-2.5">
-                                <strong className="text-white print:text-black block">{x.colaborador.nomeCompleto}</strong>
+                                <strong className="text-white print:text-black block font-bold uppercase">{x.colaborador.nomeCompleto}</strong>
                                 <span className="text-[9px] text-slate-500 print:text-slate-700 block uppercase">{x.colaborador.empresa.nome}</span>
                               </td>
                               <td className="px-4 py-2.5 font-mono">{new Date(x.timestampEntrada).toLocaleString('pt-BR')}</td>
@@ -1276,9 +1342,9 @@ export default function OperacoesPage() {
                               <td className="px-4 py-2.5 font-mono">{new Date(ch.timestamp).toLocaleString('pt-BR')}</td>
                               <td className="px-4 py-2.5 font-bold uppercase">{ch.chaveCodigo}</td>
                               <td className="px-4 py-2.5 uppercase font-bold text-slate-400 print:text-black">{ch.acao}</td>
-                              <td className="px-4 py-2.5">{ch.responsavel}</td>
-                              <td className="px-4 py-2.5">{ch.operador}</td>
-                              <td className="px-4 py-2.5 italic">"{ch.observacao || '-'}"</td>
+                              <td className="px-4 py-2.5 uppercase font-bold text-white print:text-black">{ch.responsavel}</td>
+                              <td className="px-4 py-2.5 font-mono">{ch.operador}</td>
+                              <td className="px-4 py-2.5 italic text-slate-400 print:text-black">"{ch.observacao || '-'}"</td>
                             </tr>
                           ))}
                         </tbody>
@@ -1414,8 +1480,8 @@ export default function OperacoesPage() {
                             <tr key={oc.id} className="text-slate-300 print:text-black">
                               <td className="px-4 py-2.5 font-mono">{new Date(oc.timestamp).toLocaleString('pt-BR')}</td>
                               <td className="px-4 py-2.5 font-bold uppercase">{oc.tipo}</td>
-                              <td className="px-4 py-2.5 font-bold">{oc.nomeEvento || '-'}</td>
-                              <td className="px-4 py-2.5">{oc.operador}</td>
+                              <td className="px-4 py-2.5 font-bold uppercase">{oc.nomeEvento || '-'}</td>
+                              <td className="px-4 py-2.5 font-mono">{oc.operador}</td>
                               <td className="px-4 py-2.5 whitespace-pre-line text-slate-400 print:text-black">"{oc.detalhes}"</td>
                             </tr>
                           ))}
@@ -1427,7 +1493,7 @@ export default function OperacoesPage() {
 
                 {/* Rodapé do Relatório Impresso */}
                 <div className="border-t border-[rgba(255,255,255,0.06)] pt-5 text-center text-[10px] text-slate-500 print:text-black print:border-t-2 print:border-black mt-8 flex justify-between">
-                  <span>Farmasi Arena - CCO Controle de Operações</span>
+                  <span>Farmasi Arena - CCO GESTÃO DE OPERAÇÕES</span>
                   <span>Página 1 de 1</span>
                 </div>
               </div>
@@ -1658,7 +1724,7 @@ export default function OperacoesPage() {
                   placeholder="Relate detalhadamente o que foi verificado nas imagens..."
                   value={audDesc}
                   onChange={(e) => setAudDesc(e.target.value)}
-                  className="px-4 py-3 rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(5,8,18,0.7)] text-white text-[12px] outline-none focus:border-[var(--accent-red)] transition-all min-h-[90px] resize-none"
+                  className="px-4 py-3 rounded-xl border border-[rgba(255,255,255,0.7)] bg-[rgba(5,8,18,0.7)] text-white text-[12px] outline-none focus:border-[var(--accent-red)] transition-all min-h-[90px] resize-none"
                   required
                   disabled={isPending}
                 />
@@ -1859,7 +1925,6 @@ export default function OperacoesPage() {
                 />
               </div>
 
-              {/* Upload de Foto da Ocorrência com Compressão Local */}
               <div className="flex flex-col gap-1.5">
                 <label className="text-[10px] font-bold uppercase tracking-[1px] text-slate-400">Anexar Evidência Fotográfica (Opcional)</label>
                 <div className="flex items-center gap-4">
@@ -1920,6 +1985,147 @@ export default function OperacoesPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ================================================= */}
+      {/* MODAL 6: ASSISTENTE DE EXPORTAÇÃO E FECHAMENTO    */}
+      {/* ================================================= */}
+      {modalAberto === 'assistente_exportacao' && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-[5px] flex items-center justify-center z-50 p-4 no-print">
+          <div className="glass-card max-w-lg w-full p-6 flex flex-col gap-5 border border-[rgba(255,255,255,0.06)] bg-slate-900">
+            
+            {/* Cabeçalho do Assistente */}
+            <div className="flex items-center justify-between border-b border-[rgba(255,255,255,0.03)] pb-3">
+              <div className="flex items-center gap-2 text-white">
+                <span className="material-symbols-outlined text-[var(--accent-red)]">download_for_offline</span>
+                <h4 className="text-[13px] font-black uppercase tracking-[1.5px]">
+                  Configurar Relatório ({tipoExportacaoDesejada})
+                </h4>
+              </div>
+              <button onClick={fecharModais} className="text-slate-500 hover:text-white transition-all cursor-pointer">
+                <span className="material-symbols-outlined text-[20px]">close</span>
+              </button>
+            </div>
+
+            {/* Passo 1: Escolha entre Parcial ou Fechamento Anual */}
+            {passoFechamento === 'ESCOLHA' && (
+              <div className="flex flex-col gap-4">
+                <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-900 text-[12px] text-slate-300">
+                  <span className="text-slate-500 uppercase font-black text-[9.5px] block tracking-[0.5px]">Intervalo Selecionado:</span>
+                  <strong className="text-white block mt-0.5 font-mono">
+                    {new Date(relDataInicio).toLocaleDateString('pt-BR')} até {new Date(relDataFim).toLocaleDateString('pt-BR')}
+                  </strong>
+                </div>
+
+                <p className="text-[12px] text-slate-400">
+                  Selecione a finalidade do relatório de exportação atual para a Arena:
+                </p>
+
+                <div className="grid grid-cols-1 gap-3.5 mt-1">
+                  
+                  {/* Opção Parcial */}
+                  <div 
+                    onClick={handleConfirmarExportacaoParcial}
+                    className="p-4 rounded-xl border border-slate-800 hover:border-emerald-600 bg-slate-950/20 hover:bg-emerald-950/5 cursor-pointer transition-all flex items-start gap-3.5 group"
+                  >
+                    <span className="material-symbols-outlined text-emerald-500 text-[24px] mt-0.5 group-hover:scale-110 transition-transform">article</span>
+                    <div className="flex flex-col gap-1">
+                      <strong className="text-[12px] font-bold text-white uppercase group-hover:text-emerald-400 transition-colors">
+                        1. Apenas Exportar Relatório Parcial
+                      </strong>
+                      <span className="text-[10.5px] text-slate-500 leading-normal">
+                        Gera e baixa o arquivo normalmente. Todos os dados históricos continuam preservados no banco de dados na nuvem.
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Opção Fechamento Anual */}
+                  <div 
+                    onClick={() => setPassoFechamento('CONFIRMACAO_LIMPEZA')}
+                    className="p-4 rounded-xl border border-slate-800 hover:border-red-600 bg-slate-950/20 hover:bg-red-950/5 cursor-pointer transition-all flex items-start gap-3.5 group"
+                  >
+                    <span className="material-symbols-outlined text-red-500 text-[24px] mt-0.5 group-hover:scale-110 transition-transform">cleaning_services</span>
+                    <div className="flex flex-col gap-1">
+                      <strong className="text-[12px] font-bold text-white uppercase group-hover:text-red-400 transition-colors">
+                        2. Fechamento de Ano e Limpeza de Cache
+                      </strong>
+                      <span className="text-[10.5px] text-slate-500 leading-normal">
+                        Gera o arquivo de backup e, em seguida, apaga permanentemente o histórico do período do banco para liberar espaço.
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Passo 2: Tela de Confirmação Dupla de Apagamento */}
+            {passoFechamento === 'CONFIRMACAO_LIMPEZA' && (
+              <div className="flex flex-col gap-4">
+                
+                {/* Alerta Crítico */}
+                <div className="p-4 rounded-xl border border-red-500/20 bg-red-500/5 text-red-400 flex items-start gap-3">
+                  <span className="material-symbols-outlined text-[24px] animate-pulse">warning</span>
+                  <div className="flex flex-col gap-1 text-[12px] leading-relaxed">
+                    <strong className="uppercase tracking-[0.5px] text-red-500">Atenção! Ação Irreversível.</strong>
+                    <span>
+                      Você escolheu limpar os dados operacionais históricos da Arena do período selecionado.
+                    </span>
+                  </div>
+                </div>
+
+                <div className="text-[11.5px] text-slate-300 leading-relaxed flex flex-col gap-2 bg-slate-950/40 p-4 rounded-xl border border-slate-900">
+                  <p>
+                    <strong>O que será apagado:</strong> logs de check-in, movimentações de chaves, ocorrências com fotos, auditorias de CFTV, cautelas de extintores e logs de incidentes de rede.
+                  </p>
+                  <p className="text-emerald-400 font-bold">
+                    * Os cadastros base de colaboradores, chaves e câmeras continuam totalmente intactos.
+                  </p>
+                </div>
+
+                <div className="flex flex-col gap-2 mt-2">
+                  <label className="text-[10.5px] font-black uppercase tracking-[0.5px] text-slate-400 leading-relaxed">
+                    Confirme digitando o ano do fechamento selecionado (<span className="text-white font-mono">{relDataFim.split('-')[0]}</span>):
+                  </label>
+                  <input
+                    type="text"
+                    placeholder={`Digite ${relDataFim.split('-')[0]} aqui...`}
+                    value={anoConfirmacao}
+                    onChange={(e) => setAnoConfirmacao(e.target.value)}
+                    className="px-4 py-3 rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(5,8,18,0.7)] text-white text-[13px] font-mono outline-none focus:border-red-500 transition-all text-center tracking-[2px]"
+                    disabled={isPending}
+                  />
+                </div>
+
+                {/* Botões de Decisão */}
+                <div className="flex gap-3 border-t border-[rgba(255,255,255,0.03)] pt-4 mt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPassoFechamento('ESCOLHA');
+                      setAnoConfirmacao('');
+                    }}
+                    className="flex-1 py-3 rounded-xl text-[11px] font-bold uppercase tracking-[0.5px] border border-[rgba(255,255,255,0.06)] hover:bg-white/5 text-slate-400 hover:text-white transition-all cursor-pointer"
+                    disabled={isPending}
+                  >
+                    Voltar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmarFechamentoELimpeza}
+                    disabled={anoConfirmacao !== relDataFim.split('-')[0] || isPending}
+                    className={`flex-1 py-3 rounded-xl text-[11px] font-bold uppercase tracking-[0.5px] flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
+                      anoConfirmacao === relDataFim.split('-')[0]
+                        ? 'bg-red-600 hover:bg-red-700 text-white shadow-[0_0_20px_rgba(220,38,38,0.25)]'
+                        : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
+                    }`}
+                  >
+                    {isPending ? 'Processando...' : 'Confirmar e Limpar'}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

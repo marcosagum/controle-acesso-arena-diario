@@ -199,6 +199,48 @@ export default function OperacoesPage() {
     reader.readAsDataURL(file);
   };
 
+  // Abre imagem em tamanho real tratando Base64/DataURIs contra bloqueios do navegador
+  const abrirImagemTamanhoReal = (fotoUrl: string) => {
+    if (!fotoUrl) return;
+
+    if (fotoUrl.startsWith('data:')) {
+      const novaAba = window.open();
+      if (novaAba) {
+        novaAba.document.write(`
+          <html>
+            <head>
+              <title>Evidência Fotográfica CCO</title>
+              <style>
+                body {
+                  margin: 0;
+                  background-color: #03050c;
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  min-height: 100vh;
+                  font-family: system-ui, sans-serif;
+                }
+                img {
+                  max-width: 95%;
+                  max-height: 95vh;
+                  box-shadow: 0 0 35px rgba(0,0,0,0.9);
+                  border-radius: 12px;
+                  border: 1px solid rgba(255,255,255,0.05);
+                }
+              </style>
+            </head>
+            <body>
+              <img src="${fotoUrl}" alt="Evidência Fotográfica CCO" />
+            </body>
+          </html>
+        `);
+        novaAba.document.close();
+      }
+    } else {
+      window.open(fotoUrl, '_blank');
+    }
+  };
+
   // Fluxo de Reportar Falha (Abertura de Chamado)
   const handleAbreModalFalha = (cam: CameraCftvInfo) => {
     setSelecionadaCameraId(cam.id);
@@ -1150,16 +1192,17 @@ export default function OperacoesPage() {
                           </td>
                           <td className="px-6 py-3.5 text-center">
                             {o.fotoUrl ? (
-                              <a 
-                                href={o.fotoUrl} 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                onClick={(e) => e.stopPropagation()}
-                                className="text-[var(--accent-red)] hover:text-white transition-all inline-flex items-center justify-center cursor-pointer"
-                                title="Visualizar Evidência Fotográfica em nova guia"
+                              <button 
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  abrirImagemTamanhoReal(o.fotoUrl || '');
+                                }}
+                                className="text-[var(--accent-red)] hover:text-white transition-all inline-flex items-center justify-center cursor-pointer bg-transparent border-none p-0 outline-none"
+                                title="Visualizar Evidência Fotográfica"
                               >
                                 <span className="material-symbols-outlined text-[20px]">image</span>
-                              </a>
+                              </button>
                             ) : (
                               <span className="text-slate-600 text-[11px]">-</span>
                             )}
@@ -2206,7 +2249,7 @@ export default function OperacoesPage() {
                   />
                   <button
                     type="button"
-                    onClick={() => window.open(ocorrenciaSelecionadaDetalhe.fotoUrl || '', '_blank')}
+                    onClick={() => abrirImagemTamanhoReal(ocorrenciaSelecionadaDetalhe.fotoUrl || '')}
                     className="w-full py-2.5 rounded-xl border border-slate-800 hover:border-[var(--accent-red)] bg-slate-950/40 hover:bg-slate-900 text-slate-400 hover:text-white text-[11px] font-bold uppercase tracking-[0.5px] flex items-center justify-center gap-1.5 transition-all cursor-pointer"
                   >
                     <span className="material-symbols-outlined text-[16px]">open_in_new</span>

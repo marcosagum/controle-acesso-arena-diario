@@ -1,12 +1,12 @@
 'use client';
 
-import React, { useState, useEffect, useTransition } from 'react';
+import React, { useState, useEffect, useTransition, useRef } from 'react';
 import {
-  getEquipamentosCftv,
-  cadastrarEquipamentoCftv,
-  registrarDefeitoCftv,
-  resolverDefeitoCftv,
-  getDefeitosCftv,
+  getNvrsComCameras,
+  simularHeartbeatCftv,
+  reportarFalhaCamera,
+  resolverFalhaCamera,
+  getHistoricoQuedas,
   getAuditoriasImagens,
   cadastrarAuditoriaImagem,
   getControleExtintores,
@@ -14,8 +14,9 @@ import {
   getOcorrencias,
   cadastrarOcorrencia,
   getDadosRelatorioUnificado,
-  EquipamentoCftvInfo,
-  DefeitoCftvInfo,
+  NvrInfo,
+  CameraCftvInfo,
+  HistoricoQuedaInfo,
   AuditoriaImagemInfo,
   ControleExtintorInfo,
   OcorrenciaInfo
@@ -26,8 +27,8 @@ export default function OperacoesPage() {
   const [isPending, startTransition] = useTransition();
 
   // Estados de dados
-  const [cftvs, setCftvs] = useState<EquipamentoCftvInfo[]>([]);
-  const [defeitos, setDefeitos] = useState<DefeitoCftvInfo[]>([]);
+  const [nvrs, setNvrs] = useState<NvrInfo[]>([]);
+  const [quedas, setQuedas] = useState<HistoricoQuedaInfo[]>([]);
   const [auditorias, setAuditorias] = useState<AuditoriaImagemInfo[]>([]);
   const [extintores, setExtintores] = useState<ControleExtintorInfo[]>([]);
   const [ocorrencias, setOcorrencias] = useState<OcorrenciaInfo[]>([]);
@@ -36,17 +37,21 @@ export default function OperacoesPage() {
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState<{ tipo: 'sucesso' | 'erro'; msg: string } | null>(null);
 
-  // Estados de Modais / Formulários
-  const [modalAberto, setModalAberto] = useState<'nova_camera' | 'reportar_defeito' | 'nova_auditoria' | 'novo_extintor' | 'nova_ocorrencia' | null>(null);
+  // Controle de Acordeões (NVRs abertos)
+  const [nvrsExpandidos, setNvrsExpandidos] = useState<{ [key: string]: boolean }>({
+    'NVR-01': true // Primeiro NVR expandido por padrão
+  });
+
+  // Estados de Modais
+  const [modalAberto, setModalAberto] = useState<'reportar_falha' | 'concluir_reparo' | 'nova_auditoria' | 'novo_extintor' | 'nova_ocorrencia' | null>(null);
   
-  // Form Câmeras
-  const [camNome, setCamNome] = useState('');
-  const [camTipo, setCamTipo] = useState('CFTV_PADRAO');
-  
-  // Form Defeito
-  const [defeitoCamNome, setDefeitoCamNome] = useState('');
-  const [defeitoDesc, setDefeitoDesc] = useState('');
-  const [operadorDefeito, setOperadorDefeito] = useState('');
+  // Seleções para modais de Câmera
+  const [selecionadaCameraId, setSelecionadaCameraId] = useState('');
+  const [selecionadaCameraCodigo, setSelecionadaCameraCodigo] = useState('');
+  const [selecionadaCameraNome, setSelecionadaCameraNome] = useState('');
+  const [justificativaFalha, setJustificativaFalha] = useState('');
+  const [solucaoReparo, setSolucaoReparo] = useState('');
+  const [operadorAcao, setOperadorAcao] = useState('');
 
   // Form Auditoria Imagem
   const [audCamNome, setAudCamNome] = useState('');
@@ -79,23 +84,44 @@ export default function OperacoesPage() {
   const [incluirAuditorias, setIncluirAuditorias] = useState(true);
   const [incluirExtintores, setIncluirExtintores] = useState(true);
 
+  // Carregar dados conforme a aba ativa
   useEffect(() => {
     carregarDados();
   }, [activeTab]);
+
+  // Loop de pulsação e atualização do CFTV (apenas quando na aba CFTV e modais fechados)
+  useEffect(() => {
+    if (activeTab !== 'cftv' || modalAberto !== null) return;
+
+    const intervalId = setInterval(async () => {
+      try {
+        await simularHeartbeatCftv();
+        // Atualiza os dados locais silenciosamente sem loading visível
+        const n = await getNvrsComCameras();
+        const q = await getHistoricoQuedas();
+        setNvrs(n);
+        setQuedas(q);
+      } catch (err) {
+        console.error('Falha no batimento de pulsação do CFTV:', err);
+      }
+    }, 6000); // Roda a cada 6 segundos
+
+    return () => clearInterval(intervalId);
+  }, [activeTab, modalAberto]);
 
   const carregarDados = async () => {
     setLoading(true);
     try {
       if (activeTab === 'cftv') {
-        const c = await getEquipamentosCftv();
-        const d = await getDefeitosCftv();
-        setCftvs(c);
-        setDefeitos(d);
+        const n = await getNvrsComCameras();
+        const q = await getHistoricoQuedas();
+        setNvrs(n);
+        setQuedas(q);
       } else if (activeTab === 'auditoria') {
         const a = await getAuditoriasImagens();
-        const c = await getEquipamentosCftv();
+        const n = await getNvrsComCameras(); // Usado para popular select de câmeras
         setAuditorias(a);
-        setCftvs(c);
+        setNvrs(n);
       } else if (activeTab === 'extintores') {
         const ex = await getControleExtintores();
         setExtintores(ex);
@@ -116,66 +142,73 @@ export default function OperacoesPage() {
     setTimeout(() => setFeedback(null), 5000);
   };
 
+  const toggleNvr = (codigo: string) => {
+    setNvrsExpandidos(prev => ({
+      ...prev,
+      [codigo]: !prev[codigo]
+    }));
+  };
+
   const fecharModais = () => {
     setModalAberto(null);
-    setCamNome('');
-    setDefeitoDesc('');
+    setJustificativaFalha('');
+    setSolucaoReparo('');
+    setOperadorAcao('');
     setAudDesc('');
     setExtMotivo('');
     setOcDetalhes('');
   };
 
-  // Submit Câmera
-  const handleCadastrarCamera = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!camNome.trim()) return;
-
-    startTransition(async () => {
-      try {
-        await cadastrarEquipamentoCftv(camNome, camTipo);
-        mostrarFeedback('sucesso', `Câmera "${camNome}" cadastrada com sucesso!`);
-        fecharModais();
-        carregarDados();
-      } catch (err: any) {
-        mostrarFeedback('erro', err.message || 'Erro ao cadastrar câmera.');
-      }
-    });
+  // Fluxo de Reportar Falha (Abertura de Chamado)
+  const handleAbreModalFalha = (cam: CameraCftvInfo) => {
+    setSelecionadaCameraId(cam.id);
+    setSelecionadaCameraCodigo(cam.codigo);
+    setSelecionadaCameraNome(cam.nome);
+    setModalAberto('reportar_falha');
   };
 
-  // Submit Defeito
-  const handleReportarDefeito = (e: React.FormEvent) => {
+  const handleSubmitFalha = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!defeitoCamNome || !defeitoDesc.trim() || !operadorDefeito.trim()) {
-      mostrarFeedback('erro', 'Preencha todos os campos do chamado.');
+    if (!justificativaFalha.trim() || !operadorAcao.trim()) {
+      mostrarFeedback('erro', 'Informe a justificativa e o operador.');
       return;
     }
 
     startTransition(async () => {
       try {
-        await registrarDefeitoCftv(defeitoCamNome, defeitoDesc, operadorDefeito);
-        mostrarFeedback('sucesso', 'Defeito registrado. Câmera colocada em Manutenção!');
+        await reportarFalhaCamera(selecionadaCameraId, justificativaFalha, operadorAcao);
+        mostrarFeedback('sucesso', `Câmera ${selecionadaCameraCodigo} colocada em manutenção!`);
         fecharModais();
         carregarDados();
       } catch (err: any) {
-        mostrarFeedback('erro', err.message || 'Erro ao registrar chamado.');
+        mostrarFeedback('erro', err.message || 'Erro ao registrar chamado técnico.');
       }
     });
   };
 
-  // Resolver Defeito
-  const handleResolverDefeito = (id: string, operador: string) => {
-    if (!operador.trim()) {
-      alert('Por favor, informe seu nome como operador CCO para concluir o chamado.');
+  // Fluxo de Resolver Falha (Encerramento de Chamado)
+  const handleAbreModalReparo = (cam: CameraCftvInfo) => {
+    setSelecionadaCameraId(cam.id);
+    setSelecionadaCameraCodigo(cam.codigo);
+    setSelecionadaCameraNome(cam.nome);
+    setModalAberto('concluir_reparo');
+  };
+
+  const handleSubmitReparo = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!solucaoReparo.trim() || !operadorAcao.trim()) {
+      mostrarFeedback('erro', 'Informe a resolução e o operador.');
       return;
     }
 
     startTransition(async () => {
       try {
-        await resolverDefeitoCftv(id, operador);
-        mostrarFeedback('sucesso', 'Câmera restaurada para status operacional!');
+        await resolverFalhaCamera(selecionadaCameraId, operadorAcao, solucaoReparo);
+        mostrarFeedback('sucesso', `Câmera ${selecionadaCameraCodigo} restabelecida com sucesso!`);
+        fecharModais();
         carregarDados();
       } catch (err: any) {
-        mostrarFeedback('erro', err.message || 'Erro ao encerrar chamado.');
+        mostrarFeedback('erro', err.message || 'Erro ao encerrar chamado técnico.');
       }
     });
   };
@@ -263,7 +296,7 @@ export default function OperacoesPage() {
     });
   };
 
-  // Lógica de Geração do Relatório de Visualização
+  // Geração de Relatório
   const handleGerarRelatorio = (e: React.FormEvent) => {
     e.preventDefault();
     if (!relDataInicio || !relDataFim) {
@@ -289,20 +322,35 @@ export default function OperacoesPage() {
     window.print();
   };
 
-  // Contadores para CFTV
-  const cftvsAtivos = cftvs.filter(c => c.status === 'DISPONIVEL').length;
-  const cftvsManutencao = cftvs.filter(c => c.status === 'MANUTENCAO').length;
+  // Métricas do CFTV
+  const camerasListaCompleta = nvrs.flatMap(n => n.cameras || []);
+  const totalCameras = camerasListaCompleta.length;
+  const camerasOnline = camerasListaCompleta.filter(c => c.status === 'ONLINE').length;
+  const camerasInstaveis = camerasListaCompleta.filter(c => c.status === 'OFFLINE').length;
+  const camerasManutencao = camerasListaCompleta.filter(c => c.status === 'MANUTENCAO').length;
+
+  const latenciaMedia = camerasListaCompleta.filter(c => c.status === 'ONLINE').length > 0
+    ? Math.round(camerasListaCompleta.filter(c => c.status === 'ONLINE').reduce((acc, c) => acc + c.latencia, 0) / camerasListaCompleta.filter(c => c.status === 'ONLINE').length)
+    : 0;
+
+  const driftMedio = camerasListaCompleta.filter(c => c.status === 'ONLINE').length > 0
+    ? parseFloat((camerasListaCompleta.filter(c => c.status === 'ONLINE').reduce((acc, c) => acc + Math.abs(c.ntpDrift), 0) / camerasListaCompleta.filter(c => c.status === 'ONLINE').length).toFixed(3))
+    : 0.0;
+
+  const uptimeGeral = totalCameras > 0 
+    ? parseFloat((((camerasOnline + camerasManutencao) / totalCameras) * 100).toFixed(1))
+    : 100.0;
 
   return (
     <div className="p-8 flex flex-col gap-6 print:p-0 print:bg-white print:text-black">
-      {/* Estilo de Impressão Nativa Inline */}
+      {/* Estilos Globais de Impressão */}
       <style jsx global>{`
         @media print {
           body {
             background: white !important;
             color: black !important;
           }
-          aside, header, nav, button, .no-print {
+          aside, header, nav, button, .no-print, .cftv-pulse-indicator {
             display: none !important;
           }
           main {
@@ -339,11 +387,11 @@ export default function OperacoesPage() {
         }
       `}</style>
 
-      {/* Abas Superiores (Ocultadas na Impressão) */}
+      {/* Navegação por Abas (Ocultado na Impressão) */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[rgba(255,255,255,0.03)] pb-4 no-print">
         <div className="flex gap-1.5 overflow-x-auto py-1">
           {[
-            { id: 'cftv', label: 'CFTV & Câmeras', icon: 'videocam' },
+            { id: 'cftv', label: 'Monitor CFTV & NVRs', icon: 'videocam' },
             { id: 'auditoria', label: 'Auditoria de Imagens', icon: 'visibility' },
             { id: 'extintores', label: 'Extintores Reserva', icon: 'fire_extinguisher' },
             { id: 'ocorrencias', label: 'Livro Ocorrências', icon: 'menu_book' },
@@ -368,7 +416,7 @@ export default function OperacoesPage() {
         </div>
       </div>
 
-      {/* Feedbacks de Operações (Ocultados na Impressão) */}
+      {/* Feedbacks Rápidos */}
       {feedback && (
         <div className="no-print">
           <div className={`p-4 rounded-xl border flex items-center gap-2 text-[12px] transition-all ${
@@ -385,117 +433,284 @@ export default function OperacoesPage() {
       )}
 
       {/* ======================================= */}
-      {/* 1. ABA CFTV & CÂMERAS                   */}
+      {/* 1. ABA CFTV & CÂMERAS (HIERÁRQUICO)      */}
       {/* ======================================= */}
       {activeTab === 'cftv' && (
-        <div className="flex flex-col gap-6 no-print">
-          {/* Indicadores de Status */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="glass-card p-5 border border-[rgba(52,211,153,0.1)] bg-[rgba(52,211,153,0.01)] flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <span className="material-symbols-outlined text-[32px] text-[var(--status-active)]">videocam</span>
-                <div className="flex flex-col">
-                  <span className="text-[11px] font-bold uppercase tracking-[1px] text-slate-400">Câmeras Operacionais</span>
-                  <span className="text-[20px] font-black text-white">{cftvsAtivos} / {cftvs.length}</span>
+        <div className="flex flex-col lg:flex-row gap-6 no-print">
+          {/* Coluna Esquerda: Visão do Painel de Monitoramento */}
+          <div className="flex-1 flex flex-col gap-6">
+            
+            {/* Metadados CFTV e Indicadores */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="glass-card p-4 border border-slate-800 flex flex-col">
+                <span className="text-[9px] font-black uppercase tracking-[1px] text-slate-500 mb-1">Câmeras Conectadas</span>
+                <span className="text-[18px] font-black text-white">{camerasOnline} / {totalCameras}</span>
+                <div className="w-full bg-slate-950 h-1 rounded-full overflow-hidden mt-2">
+                  <div 
+                    className="bg-[var(--status-active)] h-full transition-all duration-500" 
+                    style={{ width: `${totalCameras > 0 ? (camerasOnline / totalCameras) * 100 : 0}%` }}
+                  ></div>
                 </div>
               </div>
-              <span className="text-[10px] bg-[rgba(52,211,153,0.1)] text-[var(--status-active)] px-2 py-0.5 rounded font-bold uppercase tracking-[0.5px]">Online</span>
-            </div>
 
-            <div className="glass-card p-5 border border-[rgba(245,158,11,0.1)] bg-[rgba(245,158,11,0.01)] flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <span className="material-symbols-outlined text-[32px] text-amber-500">build</span>
-                <div className="flex flex-col">
-                  <span className="text-[11px] font-bold uppercase tracking-[1px] text-slate-400">Em Manutenção</span>
-                  <span className="text-[20px] font-black text-white">{cftvsManutencao}</span>
-                </div>
+              <div className="glass-card p-4 border border-slate-800 flex flex-col">
+                <span className="text-[9px] font-black uppercase tracking-[1px] text-slate-500 mb-1">Uptime CCO</span>
+                <span className="text-[18px] font-black text-emerald-400">{uptimeGeral}%</span>
+                <span className="text-[8px] text-slate-500 mt-1 uppercase font-bold">Taxa média de rede</span>
               </div>
-              <span className="text-[10px] bg-[rgba(245,158,11,0.1)] text-amber-500 px-2 py-0.5 rounded font-bold uppercase tracking-[0.5px]">Chamados Abertos</span>
+
+              <div className="glass-card p-4 border border-slate-800 flex flex-col">
+                <span className="text-[9px] font-black uppercase tracking-[1px] text-slate-500 mb-1">Latência Média</span>
+                <span className={`text-[18px] font-black ${latenciaMedia > 50 ? 'text-amber-500' : 'text-white'}`}>{latenciaMedia} ms</span>
+                <span className="text-[8px] text-slate-500 mt-1 uppercase font-bold">Tempo de resposta</span>
+              </div>
+
+              <div className="glass-card p-4 border border-slate-800 flex flex-col">
+                <span className="text-[9px] font-black uppercase tracking-[1px] text-slate-500 mb-1">NTP Drift Médio</span>
+                <span className="text-[18px] font-black text-white">± {driftMedio}s</span>
+                <span className="text-[8px] text-slate-500 mt-1 uppercase font-bold">Desvio de relógio</span>
+              </div>
             </div>
-          </div>
 
-          {/* Ações da Aba */}
-          <div className="flex gap-3 justify-end">
-            <button
-              onClick={() => setModalAberto('nova_camera')}
-              className="px-4 py-2.5 rounded-xl text-[12px] font-bold bg-[var(--accent-red)] hover:bg-[var(--accent-red-hover)] text-white flex items-center gap-1.5 transition-all cursor-pointer shadow-[0_0_20px_rgba(255,26,60,0.15)]"
-            >
-              <span className="material-symbols-outlined text-[16px]">add_circle</span>
-              Cadastrar Equipamento
-            </button>
-            <button
-              onClick={() => setModalAberto('reportar_defeito')}
-              className="px-4 py-2.5 rounded-xl text-[12px] font-bold border border-[rgba(255,255,255,0.06)] hover:bg-white/5 text-slate-300 hover:text-white flex items-center gap-1.5 transition-all cursor-pointer"
-            >
-              <span className="material-symbols-outlined text-[16px]">report_problem</span>
-              Reportar Defeito (Chamado)
-            </button>
-          </div>
+            {/* Painel Operacional dos 8 NVRs */}
+            <div className="flex flex-col gap-4">
+              <div className="flex items-center justify-between border-b border-[rgba(255,255,255,0.03)] pb-2">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-[var(--status-active)] animate-pulse cftv-pulse-indicator"></span>
+                  <h3 className="text-[12px] font-black uppercase tracking-[1.5px] text-white">Estrutura de Agregação de Vídeo (Setores CFTV)</h3>
+                </div>
+                <span className="text-[10px] text-slate-500 font-mono">Heartbeat ativo (6s)</span>
+              </div>
 
-          {/* Grid de CFTV e Câmeras */}
-          {loading ? (
-            <div className="flex flex-col items-center justify-center py-20 gap-3">
-              <div className="w-8 h-8 rounded-full border-4 border-t-[var(--accent-red)] border-r-transparent border-b-transparent border-l-transparent animate-spin"></div>
-              <span className="text-[12px] text-slate-500 uppercase font-bold tracking-[1px]">Carregando CFTV...</span>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {cftvs.map((cam) => {
-                const defeitoAtivo = defeitos.find(d => d.equipamentoNome === cam.nome);
-                return (
-                  <div
-                    key={cam.id}
-                    className={`glass-card p-5 border flex flex-col gap-4 transition-all hover:scale-[1.01] ${
-                      cam.status === 'DISPONIVEL'
-                        ? 'border-[rgba(52,211,153,0.15)] bg-[rgba(52,211,153,0.01)]'
-                        : 'border-[rgba(245,158,11,0.15)] bg-[rgba(245,158,11,0.01)]'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex flex-col">
-                        <span className="text-[13px] font-black text-white uppercase tracking-[0.5px] leading-tight">
-                          {cam.nome}
-                        </span>
-                        <span className="text-[9px] text-slate-500 font-mono mt-1">TIPO: {cam.tipo}</span>
-                      </div>
-                      <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-[0.5px] ${
-                        cam.status === 'DISPONIVEL'
-                          ? 'bg-[rgba(52,211,153,0.1)] text-[var(--status-active)]'
-                          : 'bg-[rgba(245,158,11,0.1)] text-amber-500'
-                      }`}>
-                        {cam.status === 'DISPONIVEL' ? 'OK' : 'MANUTENÇÃO'}
-                      </span>
-                    </div>
+              {loading ? (
+                <div className="flex flex-col items-center justify-center py-20 gap-3">
+                  <div className="w-8 h-8 rounded-full border-4 border-t-[var(--accent-red)] border-r-transparent border-b-transparent border-l-transparent animate-spin"></div>
+                  <span className="text-[12px] text-slate-500 uppercase font-bold tracking-[1px]">Sincronizando topologia de rede...</span>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  {nvrs.map((nvr) => {
+                    const isNvrExpandido = !!nvrsExpandidos[nvr.codigo];
+                    const camerasNvr = nvr.cameras || [];
+                    const onlineCount = camerasNvr.filter(c => c.status === 'ONLINE').length;
+                    const isNvrOffline = nvr.status === 'OFFLINE';
 
-                    <div className="flex-1 text-[11px] border-t border-[rgba(255,255,255,0.03)] pt-3">
-                      {cam.status === 'DISPONIVEL' ? (
-                        <span className="text-slate-500 italic">Equipamento funcionando normalmente.</span>
-                      ) : (
-                        <div className="flex flex-col gap-1 text-slate-300">
-                          <span className="text-red-400 font-bold">Defeito Reportado:</span>
-                          <span className="text-slate-400">"{defeitoAtivo?.descricao}"</span>
-                          <span className="text-[9px] text-slate-500 mt-1">Por: {defeitoAtivo?.operador} em {defeitoAtivo?.dataHora ? new Date(defeitoAtivo.dataHora).toLocaleString('pt-BR') : ''}</span>
-                        </div>
-                      )}
-                    </div>
-
-                    {cam.status === 'MANUTENCAO' && (
-                      <button
-                        onClick={() => {
-                          const op = prompt('Informe seu nome como operador CCO para fechar este chamado de manutenção:');
-                          if (op) handleResolverDefeito(cam.id, op);
-                        }}
-                        className="w-full py-2 rounded-lg text-[10px] font-bold uppercase bg-[var(--status-active)] hover:bg-[#2fbfa0] text-white flex items-center justify-center gap-1 cursor-pointer transition-all"
+                    return (
+                      <div 
+                        key={nvr.id} 
+                        className={`glass-card overflow-hidden border transition-all ${
+                          isNvrOffline
+                            ? 'border-red-900 bg-red-950/5'
+                            : 'border-slate-800'
+                        }`}
                       >
-                        <span className="material-symbols-outlined text-[14px]">check_circle</span>
-                        Concluir Manutenção
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
+                        {/* Faixa Cabeçalho do NVR */}
+                        <div 
+                          onClick={() => toggleNvr(nvr.codigo)}
+                          className="px-6 py-4 flex items-center justify-between cursor-pointer hover:bg-white/[0.01] transition-all"
+                        >
+                          <div className="flex items-center gap-4">
+                            <span className="material-symbols-outlined text-[24px] text-slate-500">dns</span>
+                            <div className="flex flex-col">
+                              <span className="text-[13px] font-black text-white uppercase tracking-[0.5px]">
+                                {nvr.codigo} — {nvr.setor}
+                              </span>
+                              <span className="text-[9px] text-slate-500 font-mono mt-0.5">IP: {nvr.ip}</span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-5">
+                            {/* Status do NVR */}
+                            <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-[0.5px] ${
+                              isNvrOffline
+                                ? 'bg-red-500/10 text-red-500 border border-red-500/20'
+                                : 'bg-[rgba(52,211,153,0.1)] text-[var(--status-active)]'
+                            }`}>
+                              {isNvrOffline ? 'FALHA SETORIAL' : 'CONECTADO'}
+                            </span>
+
+                            {/* Câmeras Ativas */}
+                            <span className="text-[11px] font-mono font-bold text-slate-400">
+                              {onlineCount} / {camerasNvr.length} Câmeras
+                            </span>
+
+                            <span className="material-symbols-outlined text-slate-500 select-none">
+                              {isNvrExpandido ? 'expand_less' : 'expand_more'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Grade e Tabela de Câmeras (Acordeão) */}
+                        {isNvrExpandido && (
+                          <div className="border-t border-slate-800 bg-slate-950/20">
+                            {camerasNvr.length === 0 ? (
+                              <p className="p-4 text-[11px] text-slate-500 italic text-center">Nenhuma câmera agregada a este NVR.</p>
+                            ) : (
+                              <div className="overflow-x-auto">
+                                <table className="w-full text-left text-[11px] border-collapse text-slate-300">
+                                  <thead>
+                                    <tr className="border-b border-slate-900 bg-slate-950/60 font-bold uppercase text-[8px] tracking-[1px] text-slate-500">
+                                      <th className="px-6 py-2.5">Código</th>
+                                      <th className="px-6 py-2.5">Nome / Localização</th>
+                                      <th className="px-6 py-2.5">Tipo</th>
+                                      <th className="px-6 py-2.5">Status</th>
+                                      <th className="px-6 py-2.5">Uptime</th>
+                                      <th className="px-6 py-2.5 text-right">Latência</th>
+                                      <th className="px-6 py-2.5 text-right">NTP Drift</th>
+                                      <th className="px-6 py-2.5 text-right no-print">Manutenção</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-900">
+                                    {camerasNvr.map((cam) => {
+                                      const isOff = cam.status === 'OFFLINE';
+                                      const isMan = cam.status === 'MANUTENCAO';
+                                      const driftCritico = Math.abs(cam.ntpDrift) > 1.5;
+
+                                      return (
+                                        <tr key={cam.id} className="hover:bg-white/[0.01] transition-all">
+                                          <td className="px-6 py-3 font-mono font-bold text-slate-400">{cam.codigo}</td>
+                                          <td className="px-6 py-3 font-bold text-white uppercase text-[12px]">{cam.nome}</td>
+                                          <td className="px-6 py-3">
+                                            <span className="text-[9px] bg-slate-900 text-slate-400 px-2 py-0.5 rounded font-mono uppercase">{cam.tipo}</span>
+                                          </td>
+                                          <td className="px-6 py-3">
+                                            <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-[0.5px] ${
+                                              isOff
+                                                ? 'bg-red-950 text-red-500 border border-red-900'
+                                                : isMan
+                                                ? 'bg-amber-950 text-amber-500 border border-amber-900'
+                                                : 'bg-emerald-950 text-emerald-500 border border-emerald-900'
+                                            }`}>
+                                              {cam.status}
+                                            </span>
+                                          </td>
+                                          <td className="px-6 py-3 font-mono text-slate-400">
+                                            {isOff ? '-' : `${Math.floor(cam.uptimeContinuo / 60)}h ${cam.uptimeContinuo % 60}m`}
+                                          </td>
+                                          <td className={`px-6 py-3 text-right font-mono font-bold ${isOff ? 'text-red-500' : 'text-slate-200'}`}>
+                                            {isOff ? 'TIMEOUT' : `${cam.latencia} ms`}
+                                          </td>
+                                          <td className={`px-6 py-3 text-right font-mono ${
+                                            isOff 
+                                              ? 'text-slate-500' 
+                                              : driftCritico 
+                                              ? 'text-red-500 font-bold animate-pulse' 
+                                              : 'text-slate-300'
+                                          }`}>
+                                            {isOff ? '-' : `${cam.ntpDrift > 0 ? '+' : ''}${cam.ntpDrift}s`}
+                                          </td>
+                                          <td className="px-6 py-3 text-right no-print">
+                                            {isMan ? (
+                                              <button
+                                                onClick={() => handleAbreModalReparo(cam)}
+                                                className="px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.5px] bg-[var(--status-active)] hover:bg-[#2fbfa0] text-white rounded cursor-pointer transition-all"
+                                              >
+                                                Reparar
+                                              </button>
+                                            ) : (
+                                              <button
+                                                onClick={() => handleAbreModalFalha(cam)}
+                                                className="px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.5px] border border-slate-800 hover:bg-red-500/10 text-slate-400 hover:text-red-400 rounded cursor-pointer transition-all"
+                                              >
+                                                Chamado
+                                              </button>
+                                            )}
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          )}
+          </div>
+
+          {/* Coluna Direita: Painel Histórico de Quedas e MTTR */}
+          <div className="w-full lg:w-[360px] shrink-0 flex flex-col gap-5">
+            <div className="glass-card p-5 border border-slate-800 flex flex-col gap-4 h-full max-h-[800px] overflow-y-auto">
+              <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
+                <span className="material-symbols-outlined text-[var(--accent-red)]">history</span>
+                <div className="flex flex-col">
+                  <h4 className="text-[11px] font-black uppercase tracking-[1.5px] text-white">Log de Histórico e MTTR</h4>
+                  <span className="text-[8px] text-slate-500 font-bold uppercase mt-0.5">Tempo Médio de Reparo</span>
+                </div>
+              </div>
+
+              {quedas.length === 0 ? (
+                <div className="py-20 text-center flex flex-col items-center justify-center gap-2 text-slate-500">
+                  <span className="material-symbols-outlined text-[32px]">check_circle</span>
+                  <span className="text-[11px] font-bold uppercase tracking-[0.5px]">Rede CCO Estável</span>
+                  <span className="text-[9px] text-slate-600">Sem incidentes registrados.</span>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-3.5">
+                  {quedas.slice(0, 15).map((q) => {
+                    const isNvr = q.tipo === 'NVR';
+                    const emAberto = q.timestampRetorno === null;
+                    
+                    // Cálculo de MTTR formatado
+                    let mttrTexto = 'Em andamento';
+                    if (!emAberto && q.duracaoSegundos) {
+                      const mins = Math.floor(q.duracaoSegundos / 60);
+                      const segs = q.duracaoSegundos % 60;
+                      mttrTexto = mins > 0 ? `${mins}m ${segs}s` : `${segs}s`;
+                    }
+
+                    return (
+                      <div 
+                        key={q.id} 
+                        className={`p-3 rounded-lg border flex flex-col gap-2 transition-all ${
+                          emAberto 
+                            ? 'bg-red-500/5 border-red-500/20' 
+                            : 'bg-slate-950/40 border-slate-900'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex flex-col">
+                            <span className={`text-[9px] font-black uppercase tracking-[0.5px] ${
+                              emAberto ? 'text-red-400' : 'text-slate-400'
+                            }`}>
+                              {isNvr ? 'QUEDA SETORIAL NVR' : 'Queda Câmera CFTV'}
+                            </span>
+                            <span className="text-[10px] font-bold text-slate-500 mt-0.5">
+                              {new Date(q.timestampQueda).toLocaleTimeString('pt-BR')}
+                            </span>
+                          </div>
+
+                          <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase ${
+                            emAberto 
+                              ? 'bg-red-500/10 text-red-500 animate-pulse' 
+                              : 'bg-slate-800 text-slate-400'
+                          }`}>
+                            {emAberto ? 'ABERTO' : 'OK'}
+                          </span>
+                        </div>
+
+                        <div className="text-[10px] text-slate-300 font-mono">
+                          <span className="text-slate-500 block font-sans">MTTR (Reparo):</span>
+                          <span className={emAberto ? 'text-red-400 font-bold' : 'text-emerald-400 font-bold'}>
+                            {mttrTexto}
+                          </span>
+                        </div>
+
+                        <p className="text-[10px] text-slate-400 italic leading-tight">
+                          "{q.observacao}"
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
@@ -789,7 +1004,7 @@ export default function OperacoesPage() {
               </label>
               <label className="flex items-center gap-2 text-[12px] text-slate-400 cursor-pointer">
                 <input type="checkbox" checked={incluirCftv} onChange={(e) => setIncluirCftv(e.target.checked)} className="rounded accent-[var(--accent-red)]" />
-                Defeitos CFTV
+                Defeitos/Quedas CFTV
               </label>
               <label className="flex items-center gap-2 text-[12px] text-slate-400 cursor-pointer">
                 <input type="checkbox" checked={incluirAuditorias} onChange={(e) => setIncluirAuditorias(e.target.checked)} className="rounded accent-[var(--accent-red)]" />
@@ -802,7 +1017,7 @@ export default function OperacoesPage() {
             </div>
           </div>
 
-          {/* ÁREA DE RELATÓRIO PRONTA PARA IMPRESSÃO / SALVAR EM PDF */}
+          {/* DOCUMENTO CONSOLIDADO PARA IMPRESSÃO EM PDF */}
           {dadosRelatorio ? (
             <div className="flex flex-col gap-6">
               {/* Botão de Visualização Rápida / Impressão */}
@@ -915,18 +1130,18 @@ export default function OperacoesPage() {
                 {incluirCftv && dadosRelatorio.defeitos && (
                   <div className="flex flex-col gap-3 print-section">
                     <h4 className="text-[12px] font-black uppercase text-white tracking-[0.5px] border-l-2 border-[var(--accent-red)] pl-2 print:text-black print:border-l-4">
-                      3. Chamados de Defeito CFTV / Segurança Eletrônica
+                      3. Chamados de Defeitos e Incidentes de CFTV
                     </h4>
                     {dadosRelatorio.defeitos.length === 0 ? (
-                      <p className="text-[11px] text-slate-500 italic">Nenhum chamado registrado no período.</p>
+                      <p className="text-[11px] text-slate-500 italic">Nenhum chamado de falha de rede ou equipamento no período.</p>
                     ) : (
                       <table className="w-full text-[11px] print-table">
                         <thead>
                           <tr className="bg-slate-950/50 text-slate-400 print:bg-slate-100 print:text-black font-bold text-left border-b border-white/5">
                             <th className="px-4 py-2.5">Data Ocorrido</th>
-                            <th className="px-4 py-2.5">Câmera / Equipamento</th>
-                            <th className="px-4 py-2.5">Descrição do Defeito</th>
-                            <th className="px-4 py-2.5">Operador CCO</th>
+                            <th className="px-4 py-2.5">Setor / Equipamento</th>
+                            <th className="px-4 py-2.5">Descrição da Ocorrência de Rede</th>
+                            <th className="px-4 py-2.5">Operador / Responsável</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-white/[0.03] print:divide-slate-200">
@@ -1066,50 +1281,50 @@ export default function OperacoesPage() {
       )}
 
       {/* ======================================= */}
-      {/* MODAL 1: CADASTRAR CÂMERA/CFTV           */}
+      {/* MODAL 1: REPORTAR FALHA MANUAL (CHAMADO) */}
       {/* ======================================= */}
-      {modalAberto === 'nova_camera' && (
+      {modalAberto === 'reportar_falha' && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-[4px] flex items-center justify-center z-50 p-4">
-          <div className="glass-card max-w-md w-full p-6 flex flex-col gap-5 border border-[rgba(255,255,255,0.06)]">
+          <div className="glass-card max-w-md w-full p-6 flex flex-col gap-5 border border-[rgba(255,255,255,0.06)] bg-slate-900">
             <div className="flex items-center justify-between border-b border-[rgba(255,255,255,0.03)] pb-3">
               <div className="flex items-center gap-2 text-white">
-                <span className="material-symbols-outlined text-[var(--accent-red)]">videocam</span>
-                <h4 className="text-[13px] font-black uppercase tracking-[1.5px]">Cadastrar Câmera</h4>
+                <span className="material-symbols-outlined text-red-500">report_problem</span>
+                <h4 className="text-[13px] font-black uppercase tracking-[1.5px]">Abertura Chamado Técnico</h4>
               </div>
               <button onClick={fecharModais} className="text-slate-500 hover:text-white transition-all cursor-pointer">
                 <span className="material-symbols-outlined text-[20px]">close</span>
               </button>
             </div>
 
-            <form onSubmit={handleCadastrarCamera} className="flex flex-col gap-4">
+            <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-900 flex flex-col gap-1 text-[12px]">
+              <span className="text-slate-500 uppercase font-black text-[9px] tracking-[0.5px]">Equipamento Afetado:</span>
+              <strong className="text-white uppercase">{selecionadaCameraCodigo} — {selecionadaCameraNome}</strong>
+            </div>
+
+            <form onSubmit={handleSubmitFalha} className="flex flex-col gap-4">
               <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] font-bold uppercase tracking-[1px] text-slate-400">Nome / Identificador do Equipamento</label>
-                <input
-                  type="text"
-                  placeholder="Ex: Câmera Portão 1 (LPR)"
-                  value={camNome}
-                  onChange={(e) => setCamNome(e.target.value)}
-                  className="px-4 py-3 rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(5,8,18,0.7)] text-white text-[13px] outline-none focus:border-[var(--accent-red)] transition-all"
+                <label className="text-[10px] font-bold uppercase tracking-[1px] text-slate-400">Descreva o Problema / Justificativa</label>
+                <textarea
+                  placeholder="Ex: Câmera oscilando sinal ou lente com sujeira obstruindo gravação facial..."
+                  value={justificativaFalha}
+                  onChange={(e) => setJustificativaFalha(e.target.value)}
+                  className="px-4 py-3 rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(5,8,18,0.7)] text-white text-[12px] outline-none focus:border-[var(--accent-red)] transition-all min-h-[90px] resize-none"
                   required
                   disabled={isPending}
                 />
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] font-bold uppercase tracking-[1px] text-slate-400">Tipo de Equipamento</label>
-                <select
-                  value={camTipo}
-                  onChange={(e) => setCamTipo(e.target.value)}
-                  className="px-4 py-3.5 rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(5,8,18,0.7)] text-white text-[13px] outline-none focus:border-[var(--accent-red)] cursor-pointer transition-all"
+                <label className="text-[10px] font-bold uppercase tracking-[1px] text-slate-400">Operador do CCO</label>
+                <input
+                  type="text"
+                  placeholder="Seu nome"
+                  value={operadorAcao}
+                  onChange={(e) => setOperadorAcao(e.target.value)}
+                  className="px-4 py-3 rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(5,8,18,0.7)] text-white text-[13px] outline-none focus:border-[var(--accent-red)] transition-all"
+                  required
                   disabled={isPending}
-                >
-                  <option value="LPR" className="bg-[#0c122b]">Leitor de Placas (LPR)</option>
-                  <option value="RECONHECIMENTO_FACIAL" className="bg-[#0c122b]">Reconhecimento Facial</option>
-                  <option value="ALARME_MOVIMENTO" className="bg-[#0c122b]">Alarme por Movimento</option>
-                  <option value="CAMERA_AUDIO" className="bg-[#0c122b]">Câmeras com Áudio</option>
-                  <option value="BODY_CAM" className="bg-[#0c122b]">Body Cam (Câmera Corporal)</option>
-                  <option value="CFTV_PADRAO" className="bg-[#0c122b]">CFTV Geral Padrão</option>
-                </select>
+                />
               </div>
 
               <div className="flex gap-3 border-t border-[rgba(255,255,255,0.03)] pt-4 mt-2">
@@ -1123,10 +1338,10 @@ export default function OperacoesPage() {
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-3 rounded-xl text-[12px] font-bold uppercase tracking-[0.5px] bg-[var(--accent-red)] hover:bg-[var(--accent-red-hover)] text-white shadow-[0_0_20px_rgba(255,26,60,0.15)] flex items-center justify-center gap-1.5 cursor-pointer transition-all"
+                  className="flex-1 py-3 rounded-xl text-[12px] font-bold uppercase tracking-[0.5px] bg-red-500 hover:bg-red-600 text-white shadow-[0_0_20px_rgba(239,68,68,0.15)] flex items-center justify-center gap-1.5 cursor-pointer transition-all"
                   disabled={isPending}
                 >
-                  Confirmar Cadastro
+                  Abrir Chamado
                 </button>
               </div>
             </form>
@@ -1135,46 +1350,33 @@ export default function OperacoesPage() {
       )}
 
       {/* ======================================= */}
-      {/* MODAL 2: REPORTAR DEFEITO / CHAMADO      */}
+      {/* MODAL 2: RESOLVER FALHA MANUAL (REPARO)  */}
       {/* ======================================= */}
-      {modalAberto === 'reportar_defeito' && (
+      {modalAberto === 'concluir_reparo' && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-[4px] flex items-center justify-center z-50 p-4">
-          <div className="glass-card max-w-md w-full p-6 flex flex-col gap-5 border border-[rgba(255,255,255,0.06)]">
+          <div className="glass-card max-w-md w-full p-6 flex flex-col gap-5 border border-[rgba(255,255,255,0.06)] bg-slate-900">
             <div className="flex items-center justify-between border-b border-[rgba(255,255,255,0.03)] pb-3">
               <div className="flex items-center gap-2 text-white">
-                <span className="material-symbols-outlined text-amber-500">report_problem</span>
-                <h4 className="text-[13px] font-black uppercase tracking-[1.5px]">Reportar Defeito</h4>
+                <span className="material-symbols-outlined text-[var(--status-active)]">build_circle</span>
+                <h4 className="text-[13px] font-black uppercase tracking-[1.5px]">Encerramento Chamado Técnico</h4>
               </div>
               <button onClick={fecharModais} className="text-slate-500 hover:text-white transition-all cursor-pointer">
                 <span className="material-symbols-outlined text-[20px]">close</span>
               </button>
             </div>
 
-            <form onSubmit={handleReportarDefeito} className="flex flex-col gap-4">
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] font-bold uppercase tracking-[1px] text-slate-400">Selecionar Câmera com Defeito</label>
-                <select
-                  value={defeitoCamNome}
-                  onChange={(e) => setDefeitoCamNome(e.target.value)}
-                  className="px-4 py-3.5 rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(5,8,18,0.7)] text-white text-[13px] outline-none focus:border-[var(--accent-red)] cursor-pointer transition-all"
-                  required
-                  disabled={isPending}
-                >
-                  <option value="" disabled>Selecione a câmera...</option>
-                  {cftvs.filter(c => c.status === 'DISPONIVEL').map((c) => (
-                    <option key={c.id} value={c.nome} className="bg-[#0c122b] text-white">
-                      {c.nome}
-                    </option>
-                  ))}
-                </select>
-              </div>
+            <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-900 flex flex-col gap-1 text-[12px]">
+              <span className="text-slate-500 uppercase font-black text-[9px] tracking-[0.5px]">Equipamento Reparado:</span>
+              <strong className="text-white uppercase">{selecionadaCameraCodigo} — {selecionadaCameraNome}</strong>
+            </div>
 
+            <form onSubmit={handleSubmitReparo} className="flex flex-col gap-4">
               <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] font-bold uppercase tracking-[1px] text-slate-400">Descreva o Defeito Técnico</label>
+                <label className="text-[10px] font-bold uppercase tracking-[1px] text-slate-400">Resolução do Reparo</label>
                 <textarea
-                  placeholder="Ex: Sinal de vídeo intermitente com barras estáticas ou perda total de imagem..."
-                  value={defeitoDesc}
-                  onChange={(e) => setDefeitoDesc(e.target.value)}
+                  placeholder="Relate o que foi feito pelo técnico (Ex: Cabo de rede substituído, lente limpa e foco reajustado)..."
+                  value={solucaoReparo}
+                  onChange={(e) => setSolucaoReparo(e.target.value)}
                   className="px-4 py-3 rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(5,8,18,0.7)] text-white text-[12px] outline-none focus:border-[var(--accent-red)] transition-all min-h-[90px] resize-none"
                   required
                   disabled={isPending}
@@ -1182,12 +1384,12 @@ export default function OperacoesPage() {
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] font-bold uppercase tracking-[1px] text-slate-400">Operador CCO Registrando</label>
+                <label className="text-[10px] font-bold uppercase tracking-[1px] text-slate-400">Operador do CCO</label>
                 <input
                   type="text"
                   placeholder="Seu nome"
-                  value={operadorDefeito}
-                  onChange={(e) => setOperadorDefeito(e.target.value)}
+                  value={operadorAcao}
+                  onChange={(e) => setOperadorAcao(e.target.value)}
                   className="px-4 py-3 rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(5,8,18,0.7)] text-white text-[13px] outline-none focus:border-[var(--accent-red)] transition-all"
                   required
                   disabled={isPending}
@@ -1205,10 +1407,10 @@ export default function OperacoesPage() {
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-3 rounded-xl text-[12px] font-bold uppercase tracking-[0.5px] bg-amber-500 hover:bg-amber-600 text-white shadow-[0_0_20px_rgba(245,158,11,0.15)] flex items-center justify-center gap-1.5 cursor-pointer transition-all"
+                  className="flex-1 py-3 rounded-xl text-[12px] font-bold uppercase tracking-[0.5px] bg-[var(--status-active)] hover:bg-[#2fbfa0] text-white shadow-[0_0_20px_rgba(52,211,153,0.15)] flex items-center justify-center gap-1.5 cursor-pointer transition-all"
                   disabled={isPending}
                 >
-                  Lançar Chamado
+                  Fechar Chamado
                 </button>
               </div>
             </form>
@@ -1221,7 +1423,7 @@ export default function OperacoesPage() {
       {/* ======================================= */}
       {modalAberto === 'nova_auditoria' && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-[4px] flex items-center justify-center z-50 p-4">
-          <div className="glass-card max-w-md w-full p-6 flex flex-col gap-5 border border-[rgba(255,255,255,0.06)]">
+          <div className="glass-card max-w-md w-full p-6 flex flex-col gap-5 border border-[rgba(255,255,255,0.06)] bg-slate-900">
             <div className="flex items-center justify-between border-b border-[rgba(255,255,255,0.03)] pb-3">
               <div className="flex items-center gap-2 text-white">
                 <span className="material-symbols-outlined text-[var(--accent-red)]">visibility</span>
@@ -1256,9 +1458,9 @@ export default function OperacoesPage() {
                   disabled={isPending}
                 >
                   <option value="" disabled>Selecione a câmera...</option>
-                  {cftvs.map((c) => (
+                  {camerasListaCompleta.map((c) => (
                     <option key={c.id} value={c.nome} className="bg-[#0c122b] text-white">
-                      {c.nome}
+                      {c.codigo} — {c.nome}
                     </option>
                   ))}
                 </select>
@@ -1341,7 +1543,7 @@ export default function OperacoesPage() {
       {/* ======================================= */}
       {modalAberto === 'novo_extintor' && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-[4px] flex items-center justify-center z-50 p-4">
-          <div className="glass-card max-w-md w-full p-6 flex flex-col gap-5 border border-[rgba(255,255,255,0.06)]">
+          <div className="glass-card max-w-md w-full p-6 flex flex-col gap-5 border border-[rgba(255,255,255,0.06)] bg-slate-900">
             <div className="flex items-center justify-between border-b border-[rgba(255,255,255,0.03)] pb-3">
               <div className="flex items-center gap-2 text-white">
                 <span className="material-symbols-outlined text-[var(--accent-red)]">fire_extinguisher</span>
@@ -1431,7 +1633,7 @@ export default function OperacoesPage() {
       {/* ======================================= */}
       {modalAberto === 'nova_ocorrencia' && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-[4px] flex items-center justify-center z-50 p-4">
-          <div className="glass-card max-w-md w-full p-6 flex flex-col gap-5 border border-[rgba(255,255,255,0.06)]">
+          <div className="glass-card max-w-md w-full p-6 flex flex-col gap-5 border border-[rgba(255,255,255,0.06)] bg-slate-900">
             <div className="flex items-center justify-between border-b border-[rgba(255,255,255,0.03)] pb-3">
               <div className="flex items-center gap-2 text-white">
                 <span className="material-symbols-outlined text-[var(--accent-red)]">add_circle</span>

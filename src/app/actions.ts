@@ -679,23 +679,42 @@ export async function getHistoricoChaves(): Promise<HistoricoChaveInfo[]> {
 }
 
 // ==========================================
-// MÓDULO DE ATIVOS E OPERAÇÕES DO CCO
+// MÓDULO DE ATIVOS E OPERAÇÕES DO CCO (CFTV)
 // ==========================================
 
-export interface EquipamentoCftvInfo {
+export interface NvrInfo {
   id: string;
-  nome: string;
-  tipo: string;
+  codigo: string;
+  setor: string;
+  ip: string;
   status: string;
   createdAt: Date;
+  cameras?: CameraCftvInfo[];
 }
 
-export interface DefeitoCftvInfo {
+export interface CameraCftvInfo {
   id: string;
-  equipamentoNome: string;
-  descricao: string;
-  operador: string;
-  dataHora: Date;
+  codigo: string;
+  nome: string;
+  nvrId: string;
+  tipo: string;
+  status: string;
+  latencia: number;
+  ntpDrift: number;
+  uptimeContinuo: number;
+  ultimoHeartbeat: Date;
+}
+
+export interface HistoricoQuedaInfo {
+  id: string;
+  tipo: string; // NVR ou CAMERA
+  nvrId: string | null;
+  cameraId: string | null;
+  timestampQueda: Date;
+  timestampRetorno: Date | null;
+  duracaoSegundos: number | null;
+  operadorCco: string | null;
+  observacao: string | null;
 }
 
 export interface AuditoriaImagemInfo {
@@ -726,148 +745,309 @@ export interface OcorrenciaInfo {
   timestamp: Date;
 }
 
-const CAMERAS_PADRAO_SEED = [
-  { nome: "Câmera Portão 1 (LPR)", tipo: "LPR" },
-  { nome: "Câmera Entrada Social (Facial)", tipo: "RECONHECIMENTO_FACIAL" },
-  { nome: "Sensor Estacionamento CCO (Movimento)", tipo: "ALARME_MOVIMENTO" },
-  { nome: "Câmera Cabine Principal (Áudio)", tipo: "CAMERA_AUDIO" },
-  { nome: "Body Cam Supervisor CCO 1", tipo: "BODY_CAM" },
-  { nome: "Câmera Geral Docas P5", tipo: "CFTV_PADRAO" },
-  { nome: "Câmera Adm Corredor Central", tipo: "CFTV_PADRAO" }
+const SEED_NVRS = [
+  { codigo: "NVR-01", setor: "Catracas Entrada Norte", ip: "192.168.10.11" },
+  { codigo: "NVR-02", setor: "Catracas Entrada Sul", ip: "192.168.10.12" },
+  { codigo: "NVR-03", setor: "Arquibancadas Nível 0", ip: "192.168.10.13" },
+  { codigo: "NVR-04", setor: "Arquibancadas Nível 1", ip: "192.168.10.14" },
+  { codigo: "NVR-05", setor: "Camarotes e Lojas", ip: "192.168.10.15" },
+  { codigo: "NVR-06", setor: "Camarins e Área ADM", ip: "192.168.10.16" },
+  { codigo: "NVR-07", setor: "Vestiários e Produção", ip: "192.168.10.17" },
+  { codigo: "NVR-08", setor: "Perímetro e Estacionamento", ip: "192.168.10.18" }
 ];
 
-// 16. Obter equipamentos de CFTV (com seeding automático)
-export async function getEquipamentosCftv(): Promise<EquipamentoCftvInfo[]> {
+// 16. Obter NVRs e Câmeras conectadas (com seeding automático das 86 câmeras)
+export async function getNvrsComCameras(): Promise<NvrInfo[]> {
   try {
-    let equipamentos = await prisma.equipamentoCftv.findMany({
-      orderBy: { nome: 'asc' }
+    let nvrs = await prisma.nvr.findMany({
+      include: { cameras: { orderBy: { codigo: 'asc' } } },
+      orderBy: { codigo: 'asc' }
     });
 
-    if (equipamentos.length === 0) {
-      console.log('Populando tabela tb_equipamentos_cftv com seeding inicial...');
-      await prisma.equipamentoCftv.createMany({
-        data: CAMERAS_PADRAO_SEED.map(cam => ({
-          nome: cam.nome,
-          tipo: cam.tipo,
-          status: 'DISPONIVEL'
-        }))
-      });
+    // Se não houver nenhum NVR, roda o seeding inicial completo da Arena
+    if (nvrs.length === 0) {
+      console.log('Iniciando Seeding Operacional das 86 Câmeras da Arena...');
+      
+      for (const nvrSeed of SEED_NVRS) {
+        const nvrCriado = await prisma.nvr.create({
+          data: {
+            codigo: nvrSeed.codigo,
+            setor: nvrSeed.setor,
+            ip: nvrSeed.ip,
+            status: 'ONLINE'
+          }
+        });
 
-      equipamentos = await prisma.equipamentoCftv.findMany({
-        orderBy: { nome: 'asc' }
+        // Mapeia quantidade de câmeras por NVR para somar exatamente 86
+        // NVR-01 a NVR-06 têm 11 câmeras, NVR-07 e NVR-08 têm 10 câmeras
+        const numCameras = (nvrSeed.codigo === 'NVR-07' || nvrSeed.codigo === 'NVR-08') ? 10 : 11;
+        const prefixo = nvrSeed.setor.split(' ').map(w => w[0]).join('').toUpperCase();
+
+        for (let i = 1; i <= numCameras; i++) {
+          const numFormatado = String(i).padStart(2, '0');
+          const cameraCodigo = `CAM-${prefixo}-${numFormatado}`;
+          
+          // Define tipo com base na numeração de forma variada
+          let tipoCam = 'CFTV_PADRAO';
+          if (i === 1) tipoCam = 'LPR'; // Portões de veículos
+          else if (i === 2 || i === 3) tipoCam = 'RECONHECIMENTO_FACIAL'; // Entradas sociais
+          else if (i === 4) tipoCam = 'CAMERA_AUDIO'; // Cabines
+          else if (i === 5) tipoCam = 'ALARME_MOVIMENTO'; // Depósitos
+          else if (i === 10 && numCameras === 10) tipoCam = 'BODY_CAM'; // Body cams móveis no setor
+
+          await prisma.cameraCftv.create({
+            data: {
+              codigo: cameraCodigo,
+              nome: `Câmera ${numFormatado} - ${nvrSeed.setor}`,
+              nvrId: nvrCriado.id,
+              tipo: tipoCam,
+              status: 'ONLINE',
+              latencia: Math.floor(Math.random() * 20) + 5,
+              ntpDrift: parseFloat((Math.random() * 0.4 - 0.2).toFixed(3)),
+              uptimeContinuo: Math.floor(Math.random() * 240) + 120
+            }
+          });
+        }
+      }
+
+      // Busca novamente os dados populados
+      nvrs = await prisma.nvr.findMany({
+        include: { cameras: { orderBy: { codigo: 'asc' } } },
+        orderBy: { codigo: 'asc' }
       });
     }
 
-    return equipamentos;
-  } catch (error: any) {
-    console.error('Erro ao buscar CFTVs:', error);
-    throw new Error('Falha ao carregar câmeras.');
+    return nvrs as NvrInfo[];
+  } catch (error) {
+    console.error('Erro ao buscar NVRs:', error);
+    throw new Error('Falha ao carregar grade do CFTV.');
   }
 }
 
-// 17. Cadastrar equipamento de CFTV
-export async function cadastrarEquipamentoCftv(
-  nome: string,
-  tipo: string
-): Promise<void> {
+// 17. Simular Pulsação de Rede do CFTV (Heartbeat com latências flutuantes e falhas temporárias)
+export async function simularHeartbeatCftv(): Promise<void> {
   try {
-    const existente = await prisma.equipamentoCftv.findUnique({
-      where: { nome }
-    });
+    const cameras = await prisma.cameraCftv.findMany();
+    const nvrs = await prisma.nvr.findMany();
 
-    if (existente) {
-      throw new Error('Já existe um equipamento cadastrado com este nome.');
+    // 1. Simular oscilações nas câmeras individuais
+    for (const cam of cameras) {
+      if (cam.status === 'MANUTENCAO') continue; // Ignora se estiver sob conserto técnico
+
+      // Sorteia nova latência e desvio NTP
+      const latenciaBase = Math.floor(Math.random() * 25) + 5; // latência média 5ms-30ms
+      const driftBase = parseFloat((Math.random() * 0.4 - 0.2).toFixed(3)); // desvio -0.2s a +0.2s
+      
+      // 1.5% de chance de uma câmera oscilar e ficar temporariamente OFFLINE
+      const ficouOffline = Math.random() < 0.015;
+      const novoStatus = ficouOffline ? 'OFFLINE' : 'ONLINE';
+      const novaLatencia = ficouOffline ? 999 : latenciaBase;
+      const novoDrift = ficouOffline ? 9.99 : driftBase;
+
+      // Se mudou para OFFLINE, registra no histórico de quedas
+      if (ficouOffline && cam.status === 'ONLINE') {
+        await prisma.historicoQueda.create({
+          data: {
+            tipo: 'CAMERA',
+            cameraId: cam.id,
+            timestampQueda: new Date(),
+            observacao: 'Interrupção temporária de sinal (Heartbeat Timeout).'
+          }
+        });
+      }
+      
+      // Se estava OFFLINE e agora retornou para ONLINE, fecha o log e calcula MTTR
+      if (novoStatus === 'ONLINE' && cam.status === 'OFFLINE') {
+        const quedaAberta = await prisma.historicoQueda.findFirst({
+          where: { cameraId: cam.id, timestampRetorno: null },
+          orderBy: { timestampQueda: 'desc' }
+        });
+
+        if (quedaAberta) {
+          const retorno = new Date();
+          const diferencaSegundos = Math.floor((retorno.getTime() - quedaAberta.timestampQueda.getTime()) / 1000);
+
+          await prisma.historicoQueda.update({
+            where: { id: quedaAberta.id },
+            data: {
+              timestampRetorno: retorno,
+              duracaoSegundos: diferencaSegundos,
+              operadorCco: 'SISTEMA',
+              observacao: 'Conexão restabelecida automaticamente (Auto-reparo).'
+            }
+          });
+        }
+      }
+
+      await prisma.cameraCftv.update({
+        where: { id: cam.id },
+        data: {
+          status: novoStatus,
+          latencia: novaLatencia,
+          ntpDrift: novoDrift,
+          ultimoHeartbeat: new Date(),
+          uptimeContinuo: novoStatus === 'ONLINE' ? cam.uptimeContinuo + 1 : 0
+        }
+      });
     }
 
-    await prisma.equipamentoCftv.create({
-      data: {
-        nome,
-        tipo,
-        status: 'DISPONIVEL'
+    // 2. Simular oscilações agregadas no nível do NVR (0.5% de chance de queda setorial)
+    for (const nvr of nvrs) {
+      const caiuSetor = Math.random() < 0.005;
+
+      if (caiuSetor && nvr.status === 'ONLINE') {
+        await prisma.nvr.update({
+          where: { id: nvr.id },
+          data: { status: 'OFFLINE' }
+        });
+
+        // Derruba todas as câmeras ligadas a este NVR
+        await prisma.cameraCftv.updateMany({
+          where: { nvrId: nvr.id },
+          data: { status: 'OFFLINE', latencia: 999 }
+        });
+
+        // Registra queda setorial no histórico
+        await prisma.historicoQueda.create({
+          data: {
+            tipo: 'NVR',
+            nvrId: nvr.id,
+            timestampQueda: new Date(),
+            observacao: `Queda de energia ou falha física geral no setor: ${nvr.setor}.`
+          }
+        });
+      } else if (nvr.status === 'OFFLINE' && Math.random() < 0.3) {
+        // 30% de chance de restaurar o NVR no próximo pulso
+        await prisma.nvr.update({
+          where: { id: nvr.id },
+          data: { status: 'ONLINE' }
+        });
+
+        await prisma.cameraCftv.updateMany({
+          where: { nvrId: nvr.id },
+          data: { status: 'ONLINE' }
+        });
+
+        const quedaAberta = await prisma.historicoQueda.findFirst({
+          where: { nvrId: nvr.id, timestampRetorno: null },
+          orderBy: { timestampQueda: 'desc' }
+        });
+
+        if (quedaAberta) {
+          const retorno = new Date();
+          const diferencaSegundos = Math.floor((retorno.getTime() - quedaAberta.timestampQueda.getTime()) / 1000);
+
+          await prisma.historicoQueda.update({
+            where: { id: quedaAberta.id },
+            data: {
+              timestampRetorno: retorno,
+              duracaoSegundos: diferencaSegundos,
+              operadorCco: 'SISTEMA',
+              observacao: 'Alimentação elétrica setorial restabelecida.'
+            }
+          });
+        }
       }
-    });
+    }
 
     revalidatePath('/operacoes');
-  } catch (error: any) {
-    console.error('Erro ao cadastrar câmera:', error);
-    throw new Error(error.message || 'Falha ao salvar câmera.');
+  } catch (error) {
+    console.error('Erro na simulação do CFTV:', error);
   }
 }
 
-// 18. Registrar defeito em equipamento (Abertura de Chamado)
-export async function registrarDefeitoCftv(
-  equipamentoNome: string,
-  descricao: string,
+// 18. Registrar falha técnica manual (Chamado / Manutenção Técnica)
+export async function reportarFalhaCamera(
+  id: string,
+  justificativa: string,
   operador: string
 ): Promise<void> {
   try {
-    const equipamento = await prisma.equipamentoCftv.findFirst({
-      where: { nome: equipamentoNome }
+    const cam = await prisma.cameraCftv.findUnique({ where: { id } });
+    if (!cam) throw new Error('Câmera não encontrada.');
+
+    // Atualiza status da câmera para MANUTENCAO
+    await prisma.cameraCftv.update({
+      where: { id },
+      data: { status: 'MANUTENCAO', latencia: 0 }
     });
 
-    if (!equipamento) throw new Error('Equipamento não encontrado.');
-
-    // Atualiza status do equipamento para MANUTENCAO
-    await prisma.equipamentoCftv.update({
-      where: { id: equipamento.id },
-      data: { status: 'MANUTENCAO' }
-    });
-
-    // Grava registro de defeito
-    await prisma.defeitoCftv.create({
+    // Grava no histórico de quedas/manutenções
+    await prisma.historicoQueda.create({
       data: {
-        equipamentoNome,
-        descricao,
-        operador,
-        dataHora: new Date()
+        tipo: 'CAMERA',
+        cameraId: id,
+        timestampQueda: new Date(),
+        operadorCco: operador,
+        observacao: `[Abertura Chamado Técnico por ${operador}]: ${justificativa}`
       }
     });
 
     revalidatePath('/operacoes');
   } catch (error: any) {
-    console.error('Erro ao registrar defeito:', error);
+    console.error('Erro ao reportar falha técnica:', error);
     throw new Error(error.message || 'Falha ao registrar defeito.');
   }
 }
 
-// 19. Resolver defeito em equipamento (Retorno ao funcionamento)
-export async function resolverDefeitoCftv(
+// 19. Resolver falha técnica manual (Retorno ao funcionamento)
+export async function resolverFalhaCamera(
   id: string,
-  operador: string
+  operador: string,
+  resolucao: string
 ): Promise<void> {
   try {
-    const equipamento = await prisma.equipamentoCftv.findUnique({
-      where: { id }
-    });
-    if (!equipamento) throw new Error('Equipamento não encontrado.');
+    const cam = await prisma.cameraCftv.findUnique({ where: { id } });
+    if (!cam) throw new Error('Câmera não encontrada.');
 
-    // Voltar status do equipamento para DISPONIVEL
-    await prisma.equipamentoCftv.update({
+    // Voltar status da câmera para ONLINE
+    await prisma.cameraCftv.update({
       where: { id },
-      data: { status: 'DISPONIVEL' }
+      data: {
+        status: 'ONLINE',
+        latencia: 15,
+        ntpDrift: 0.01,
+        ultimoHeartbeat: new Date()
+      }
     });
 
-    // Deletar o registro de defeito ativo
-    await prisma.defeitoCftv.deleteMany({
-      where: { equipamentoNome: equipamento.nome }
+    // Localiza histórico de queda em aberto para fechar o ciclo
+    const quedaAberta = await prisma.historicoQueda.findFirst({
+      where: { cameraId: id, timestampRetorno: null },
+      orderBy: { timestampQueda: 'desc' }
     });
+
+    if (quedaAberta) {
+      const retorno = new Date();
+      const diferencaSegundos = Math.floor((retorno.getTime() - quedaAberta.timestampQueda.getTime()) / 1000);
+
+      await prisma.historicoQueda.update({
+        where: { id: quedaAberta.id },
+        data: {
+          timestampRetorno: retorno,
+          duracaoSegundos: diferencaSegundos,
+          operadorCco: operador,
+          observacao: `[Chamado Fechado por ${operador}]: Resolvido - ${resolucao}`
+        }
+      });
+    }
 
     revalidatePath('/operacoes');
   } catch (error: any) {
-    console.error('Erro ao resolver defeito:', error);
-    throw new Error(error.message || 'Falha ao resolver defeito.');
+    console.error('Erro ao resolver chamado técnico:', error);
+    throw new Error(error.message || 'Falha ao encerrar chamado.');
   }
 }
 
-// 20. Listar todos os defeitos reportados
-export async function getDefeitosCftv(): Promise<DefeitoCftvInfo[]> {
+// 20. Listar todas as quedas registradas (Histórico e MTTR)
+export async function getHistoricoQuedas(): Promise<HistoricoQuedaInfo[]> {
   try {
-    return prisma.defeitoCftv.findMany({
-      orderBy: { dataHora: 'desc' }
+    return prisma.historicoQueda.findMany({
+      orderBy: { timestampQueda: 'desc' }
     });
-  } catch (error: any) {
-    console.error('Erro ao buscar defeitos:', error);
-    throw new Error('Falha ao recuperar histórico de defeitos.');
+  } catch (error) {
+    console.error('Erro ao buscar histórico de quedas:', error);
+    throw new Error('Falha ao carregar logs de queda.');
   }
 }
 
@@ -1031,15 +1211,23 @@ export async function getDadosRelatorioUnificado(dataInicio: Date, dataFim: Date
       orderBy: { createdAt: 'desc' }
     });
 
-    const defeitos = await prisma.defeitoCftv.findMany({
+    const quedas = await prisma.historicoQueda.findMany({
       where: {
-        dataHora: {
+        timestampQueda: {
           gte: dataInicio,
           lte: dataFim
         }
       },
-      orderBy: { dataHora: 'desc' }
+      orderBy: { timestampQueda: 'desc' }
     });
+
+    const defeitos = quedas.map(q => ({
+      id: q.id,
+      equipamentoNome: q.tipo === 'CAMERA' ? 'Câmera CFTV' : 'Setor NVR',
+      descricao: q.observacao || 'Queda ou oscilação de sinal de rede',
+      operador: q.operadorCco || 'SISTEMA',
+      dataHora: q.timestampQueda
+    }));
 
     const extintores = await prisma.controleExtintor.findMany({
       where: {

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useTransition, useRef } from 'react';
+import * as XLSX from 'xlsx';
 import {
   getNvrsComCameras,
   simularHeartbeatCftv,
@@ -67,11 +68,13 @@ export default function OperacoesPage() {
   const [extOperador, setExtOperador] = useState('');
   const [extMotivo, setExtMotivo] = useState('');
 
-  // Form Ocorrências
+  // Form Ocorrências (Foto e Campos)
   const [ocTipo, setOcTipo] = useState<'GERAL' | 'EVENTO'>('GERAL');
   const [ocEventoNome, setOcEventoNome] = useState('');
   const [ocOperador, setOcOperador] = useState('');
   const [ocDetalhes, setOcDetalhes] = useState('');
+  const [ocFotoBase64, setOcFotoBase64] = useState<string>('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Form Relatórios
   const [relDataInicio, setRelDataInicio] = useState('');
@@ -157,6 +160,35 @@ export default function OperacoesPage() {
     setAudDesc('');
     setExtMotivo('');
     setOcDetalhes('');
+    setOcFotoBase64('');
+  };
+
+  // Processar e comprimir imagem da ocorrência localmente via HTML5 Canvas
+  const handleSelecionarFotoOcorrencia = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 300;
+        const scaleSize = MAX_WIDTH / img.width;
+        canvas.width = MAX_WIDTH;
+        canvas.height = img.height * scaleSize;
+
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          // Salva como JPG compactado a 75% (20 KB a 40 KB)
+          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.75);
+          setOcFotoBase64(compressedBase64);
+        }
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.readAsDataURL(file);
   };
 
   // Fluxo de Reportar Falha (Abertura de Chamado)
@@ -266,7 +298,7 @@ export default function OperacoesPage() {
     });
   };
 
-  // Submit Ocorrência
+  // Submit Ocorrência com Foto
   const handleCadastrarOcorrencia = (e: React.FormEvent) => {
     e.preventDefault();
     if (!ocOperador.trim() || !ocDetalhes.trim()) {
@@ -285,7 +317,8 @@ export default function OperacoesPage() {
           tipo: ocTipo,
           nomeEvento: ocEventoNome,
           operador: ocOperador,
-          detalhes: ocDetalhes
+          detalhes: ocDetalhes,
+          fotoBase64: ocFotoBase64 || undefined
         });
         mostrarFeedback('sucesso', 'Ocorrência lançada no livro de ocorrências!');
         fecharModais();
@@ -316,6 +349,111 @@ export default function OperacoesPage() {
         setLoading(false);
       }
     });
+  };
+
+  // Exportar dados em planilha Excel Multi-abas
+  const handleExportarExcel = () => {
+    if (!dadosRelatorio) {
+      alert('Por favor, consolide os dados primeiro clicando em "Consolidar Relatório".');
+      return;
+    }
+
+    try {
+      // 1. Criar novo Workbook
+      const wb = XLSX.utils.book_new();
+
+      // 2. Aba Acessos Portaria (Check-ins/Outs)
+      if (incluirAcessos && dadosRelatorio.checkins) {
+        const dadosAcessos = dadosRelatorio.checkins.map((x: any) => ({
+          'Nome Colaborador': x.colaborador.nomeCompleto,
+          'CPF': x.colaborador.cpf,
+          'Empresa': x.colaborador.empresa.nome,
+          'Entrada (Data/Hora)': new Date(x.timestampEntrada).toLocaleString('pt-BR'),
+          'Serviço': x.descricaoServico,
+          'Operador Entrada': x.operadorEntrada,
+          'Saída (Data/Hora)': x.timestampSaida ? new Date(x.timestampSaida).toLocaleString('pt-BR') : 'Ainda na Arena',
+          'Serviços Extras': x.servicosExtras || '-',
+          'Operador Saída': x.operadorSaida || '-'
+        }));
+        const ws = XLSX.utils.json_to_sheet(dadosAcessos);
+        XLSX.utils.book_append_sheet(wb, ws, 'Acessos Portaria');
+      }
+
+      // 3. Aba Cautela de Chaves
+      if (incluirChaves && dadosRelatorio.chavesMovimentadas) {
+        const dadosChaves = dadosRelatorio.chavesMovimentadas.map((ch: any) => ({
+          'Data/Hora': new Date(ch.timestamp).toLocaleString('pt-BR'),
+          'Código Chave': ch.chaveCodigo,
+          'Ação': ch.acao,
+          'Responsável/Portador': ch.responsavel,
+          'Operador CCO': ch.operador,
+          'Observações': ch.observacao || '-'
+        }));
+        const ws = XLSX.utils.json_to_sheet(dadosChaves);
+        XLSX.utils.book_append_sheet(wb, ws, 'Cautela de Chaves');
+      }
+
+      // 4. Aba Livro de Ocorrências
+      if (incluirOcorrencias && dadosRelatorio.ocorrencias) {
+        const dadosOcorrencias = dadosRelatorio.ocorrencias.map((oc: any) => ({
+          'Data/Hora': new Date(oc.timestamp).toLocaleString('pt-BR'),
+          'Tipo': oc.tipo,
+          'Evento': oc.nomeEvento || '-',
+          'Operador CCO': oc.operador,
+          'Fatos Ocorridos': oc.detalhes,
+          'Link da Evidência': oc.fotoUrl || 'Sem Foto'
+        }));
+        const ws = XLSX.utils.json_to_sheet(dadosOcorrencias);
+        XLSX.utils.book_append_sheet(wb, ws, 'Ocorrências');
+      }
+
+      // 5. Aba Auditoria de Imagens
+      if (incluirAuditorias && dadosRelatorio.auditorias) {
+        const dadosAuditorias = dadosRelatorio.auditorias.map((aud: any) => ({
+          'Data Registro': new Date(aud.createdAt).toLocaleString('pt-BR'),
+          'Câmera/Equipamento': aud.cameraNome,
+          'Horário do Fato': new Date(aud.timestampTrecho).toLocaleString('pt-BR'),
+          'Tipo': aud.tipo,
+          'Fatos Observados': aud.descricaoFato,
+          'Operador CCO': aud.operador
+        }));
+        const ws = XLSX.utils.json_to_sheet(dadosAuditorias);
+        XLSX.utils.book_append_sheet(wb, ws, 'Auditoria de Imagens');
+      }
+
+      // 6. Aba Extintores Reserva
+      if (incluirExtintores && dadosRelatorio.extintores) {
+        const dadosExtintores = dadosRelatorio.extintores.map((ex: any) => ({
+          'Data/Hora': new Date(ex.timestamp).toLocaleString('pt-BR'),
+          'Tipo Movimentação': ex.tipoMovimentacao,
+          'Responsável Externo': ex.responsavelExterno,
+          'Operador CCO': ex.operadorCco,
+          'Motivo/Justificativa': ex.motivo
+        }));
+        const ws = XLSX.utils.json_to_sheet(dadosExtintores);
+        XLSX.utils.book_append_sheet(wb, ws, 'Extintores Reserva');
+      }
+
+      // 7. Aba Defeitos/Quedas CFTV
+      if (incluirCftv && dadosRelatorio.defeitos) {
+        const dadosDefeitos = dadosRelatorio.defeitos.map((def: any) => ({
+          'Data/Hora Ocorrido': new Date(def.dataHora).toLocaleString('pt-BR'),
+          'Equipamento/Setor': def.equipamentoNome,
+          'Defeito/Histórico': def.descricao,
+          'Operador/Responsável': def.operador
+        }));
+        const ws = XLSX.utils.json_to_sheet(dadosDefeitos);
+        XLSX.utils.book_append_sheet(wb, ws, 'Logs de Rede CFTV');
+      }
+
+      // 8. Baixar o arquivo .xlsx
+      const nomeArquivo = `Backup_Consolidado_CCO_${relDataInicio}_a_${relDataFim}.xlsx`;
+      XLSX.writeFile(wb, nomeArquivo);
+      mostrarFeedback('sucesso', 'Planilha consolidada baixada com sucesso!');
+    } catch (err) {
+      console.error('Falha ao exportar planilha:', err);
+      alert('Ocorreu um erro ao exportar os dados para o Excel.');
+    }
   };
 
   const dispararImpressao = () => {
@@ -908,6 +1046,7 @@ export default function OperacoesPage() {
                       <th className="px-6 py-4">Evento Vinculado</th>
                       <th className="px-6 py-4">Operador CCO</th>
                       <th className="px-6 py-4">Histórico / Fatos Ocorridos</th>
+                      <th className="px-6 py-4 text-center">Evidência</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[rgba(255,255,255,0.02)]">
@@ -934,6 +1073,21 @@ export default function OperacoesPage() {
                           <td className="px-6 py-3.5 text-slate-300 whitespace-pre-line max-w-md">
                             {o.detalhes}
                           </td>
+                          <td className="px-6 py-3.5 text-center">
+                            {o.fotoUrl ? (
+                              <a 
+                                href={o.fotoUrl} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-[var(--accent-red)] hover:text-white transition-all inline-flex items-center justify-center cursor-pointer"
+                                title="Visualizar Evidência Fotográfica"
+                              >
+                                <span className="material-symbols-outlined text-[20px]">image</span>
+                              </a>
+                            ) : (
+                              <span className="text-slate-600 text-[11px]">-</span>
+                            )}
+                          </td>
                         </tr>
                       );
                     })}
@@ -954,7 +1108,7 @@ export default function OperacoesPage() {
           <div className="glass-card p-6 flex flex-col gap-5 no-print">
             <div className="flex items-center gap-2 border-b border-[rgba(255,255,255,0.03)] pb-3">
               <span className="material-symbols-outlined text-[var(--accent-red)]">analytics</span>
-              <h3 className="text-[13px] font-black uppercase tracking-[1.5px] text-white">Consolidar Dados e Gerar PDF</h3>
+              <h3 className="text-[13px] font-black uppercase tracking-[1.5px] text-white">Consolidar Dados e Gerar PDF / Excel</h3>
             </div>
 
             <form onSubmit={handleGerarRelatorio} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-end">
@@ -1020,8 +1174,15 @@ export default function OperacoesPage() {
           {/* DOCUMENTO CONSOLIDADO PARA IMPRESSÃO EM PDF */}
           {dadosRelatorio ? (
             <div className="flex flex-col gap-6">
-              {/* Botão de Visualização Rápida / Impressão */}
-              <div className="flex justify-end no-print">
+              {/* Botões de Ação */}
+              <div className="flex justify-end gap-3 no-print">
+                <button
+                  onClick={handleExportarExcel}
+                  className="px-6 py-3 rounded-xl text-[13px] font-bold bg-emerald-700 hover:bg-emerald-800 border border-emerald-600 text-white flex items-center gap-1.5 transition-all cursor-pointer shadow-[0_0_20px_rgba(16,185,129,0.15)]"
+                >
+                  <span className="material-symbols-outlined text-[18px]">table_view</span>
+                  Exportar Planilha Excel (.xlsx)
+                </button>
                 <button
                   onClick={dispararImpressao}
                   className="px-6 py-3 rounded-xl text-[13px] font-bold bg-[#0f172a] hover:bg-[#1e293b] border border-slate-800 text-white flex items-center gap-1.5 transition-all cursor-pointer"
@@ -1696,6 +1857,49 @@ export default function OperacoesPage() {
                   required
                   disabled={isPending}
                 />
+              </div>
+
+              {/* Upload de Foto da Ocorrência com Compressão Local */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-[1px] text-slate-400">Anexar Evidência Fotográfica (Opcional)</label>
+                <div className="flex items-center gap-4">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleSelecionarFotoOcorrencia}
+                    ref={fileInputRef}
+                    className="hidden"
+                    disabled={isPending}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="px-4 py-2.5 rounded-xl border border-dashed border-slate-700 hover:border-[var(--accent-red)] bg-slate-950/40 text-slate-400 hover:text-white text-[12px] font-bold flex items-center gap-1.5 transition-all cursor-pointer"
+                    disabled={isPending}
+                  >
+                    <span className="material-symbols-outlined text-[18px]">photo_camera</span>
+                    {ocFotoBase64 ? 'Alterar Foto' : 'Selecionar Imagem'}
+                  </button>
+
+                  {ocFotoBase64 && (
+                    <div className="flex items-center gap-2">
+                      <img 
+                        src={ocFotoBase64} 
+                        alt="Preview" 
+                        className="w-10 h-10 object-cover rounded border border-slate-800" 
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setOcFotoBase64('')}
+                        className="p-1 rounded bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white transition-all cursor-pointer"
+                        title="Remover imagem"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">delete</span>
+                      </button>
+                      <span className="text-[10px] text-emerald-400 font-mono">Comprimida (OK)</span>
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="flex gap-3 border-t border-[rgba(255,255,255,0.03)] pt-4 mt-2">

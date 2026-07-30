@@ -742,6 +742,7 @@ export interface OcorrenciaInfo {
   nomeEvento: string | null;
   operador: string;
   detalhes: string;
+  fotoUrl: string | null;
   timestamp: Date;
 }
 
@@ -1144,14 +1145,27 @@ export async function cadastrarOcorrencia(data: {
   nomeEvento?: string;
   operador: string;
   detalhes: string;
+  fotoBase64?: string;
 }): Promise<void> {
   try {
+    let fotoUrl: string | null = null;
+
+    if (data.fotoBase64) {
+      try {
+        fotoUrl = await uploadFotoParaSupabaseStorage(`ocorrencia_${Date.now()}`, data.fotoBase64);
+      } catch (uploadErr) {
+        console.warn('Falha no upload para Storage. Salvando em Base64 no banco como fallback:', uploadErr);
+        fotoUrl = data.fotoBase64;
+      }
+    }
+
     await prisma.ocorrencia.create({
       data: {
         tipo: data.tipo,
         nomeEvento: data.tipo === 'EVENTO' ? data.nomeEvento : null,
         operador: data.operador,
-        detalhes: data.detalhes
+        detalhes: data.detalhes,
+        fotoUrl: fotoUrl
       }
     });
 

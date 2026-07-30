@@ -158,6 +158,7 @@ model Ocorrencia {
   nomeEvento String?  @map("nome_evento") // Preenchido apenas se tipo === EVENTO
   operador   String   @map("operador")
   detalhes   String   @map("detalhes")
+  fotoUrl    String?  @map("foto_url")
   timestamp  DateTime @default(now()) @map("timestamp")
 
   @@map("tb_ocorrencias")

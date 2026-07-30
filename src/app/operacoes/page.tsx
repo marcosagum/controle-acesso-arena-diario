@@ -34,6 +34,7 @@ export default function OperacoesPage() {
   const [auditorias, setAuditorias] = useState<AuditoriaImagemInfo[]>([]);
   const [extintores, setExtintores] = useState<ControleExtintorInfo[]>([]);
   const [ocorrencias, setOcorrencias] = useState<OcorrenciaInfo[]>([]);
+  const [ocorrenciaSelecionadaDetalhe, setOcorrenciaSelecionadaDetalhe] = useState<OcorrenciaInfo | null>(null);
 
   // Estados de loading
   const [loading, setLoading] = useState(true);
@@ -45,7 +46,7 @@ export default function OperacoesPage() {
   });
 
   // Estados de Modais
-  const [modalAberto, setModalAberto] = useState<'reportar_falha' | 'concluir_reparo' | 'nova_auditoria' | 'novo_extintor' | 'nova_ocorrencia' | 'assistente_exportacao' | null>(null);
+  const [modalAberto, setModalAberto] = useState<'reportar_falha' | 'concluir_reparo' | 'nova_auditoria' | 'novo_extintor' | 'nova_ocorrencia' | 'assistente_exportacao' | 'detalhe_ocorrencia' | null>(null);
   
   // Seleções para modais de Câmera
   const [selecionadaCameraId, setSelecionadaCameraId] = useState('');
@@ -1119,7 +1120,15 @@ export default function OperacoesPage() {
                     {ocorrencias.map((o) => {
                       const isEvento = o.tipo === 'EVENTO';
                       return (
-                        <tr key={o.id} className="hover:bg-white/[0.01] transition-all">
+                        <tr 
+                          key={o.id} 
+                          onClick={() => {
+                            setOcorrenciaSelecionadaDetalhe(o);
+                            setModalAberto('detalhe_ocorrencia');
+                          }}
+                          className="hover:bg-white/5 transition-all cursor-pointer"
+                          title="Clique para visualizar o cartão detalhado desta ocorrência"
+                        >
                           <td className="px-6 py-3.5 font-mono text-slate-500">
                             {new Date(o.timestamp).toLocaleString('pt-BR')}
                           </td>
@@ -1145,8 +1154,9 @@ export default function OperacoesPage() {
                                 href={o.fotoUrl} 
                                 target="_blank" 
                                 rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
                                 className="text-[var(--accent-red)] hover:text-white transition-all inline-flex items-center justify-center cursor-pointer"
-                                title="Visualizar Evidência Fotográfica"
+                                title="Visualizar Evidência Fotográfica em nova guia"
                               >
                                 <span className="material-symbols-outlined text-[20px]">image</span>
                               </a>
@@ -2126,6 +2136,102 @@ export default function OperacoesPage() {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ================================================= */}
+      {/* MODAL 7: VISUALIZAÇÃO DETALHADA DE OCORRÊNCIA     */}
+      {/* ================================================= */}
+      {modalAberto === 'detalhe_ocorrencia' && ocorrenciaSelecionadaDetalhe && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-[5px] flex items-center justify-center z-50 p-4 no-print">
+          <div className="glass-card max-w-lg w-full p-6 flex flex-col gap-5 border border-[rgba(255,255,255,0.06)] bg-slate-900 max-h-[90vh] overflow-y-auto">
+            
+            {/* Cabeçalho do Detalhe */}
+            <div className="flex items-center justify-between border-b border-[rgba(255,255,255,0.03)] pb-3">
+              <div className="flex items-center gap-2 text-white">
+                <span className="material-symbols-outlined text-[var(--accent-red)] text-[20px]">menu_book</span>
+                <h4 className="text-[13px] font-black uppercase tracking-[1.5px]">Detalhes do Registro</h4>
+              </div>
+              <button onClick={fecharModais} className="text-slate-500 hover:text-white transition-all cursor-pointer">
+                <span className="material-symbols-outlined text-[20px]">close</span>
+              </button>
+            </div>
+
+            {/* Metadados da Ocorrência */}
+            <div className="grid grid-cols-2 gap-4 bg-slate-950/60 p-4 rounded-xl border border-slate-900 text-[12px]">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-slate-500 uppercase font-black text-[9px] tracking-[0.5px]">Data / Hora Registro:</span>
+                <span className="text-white font-mono">{new Date(ocorrenciaSelecionadaDetalhe.timestamp).toLocaleString('pt-BR')}</span>
+              </div>
+              <div className="flex flex-col gap-0.5">
+                <span className="text-slate-500 uppercase font-black text-[9px] tracking-[0.5px]">Operador CCO:</span>
+                <span className="text-white uppercase font-bold">{ocorrenciaSelecionadaDetalhe.operador}</span>
+              </div>
+              <div className="flex flex-col gap-0.5">
+                <span className="text-slate-500 uppercase font-black text-[9px] tracking-[0.5px]">Tipo de Ocorrência:</span>
+                <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase w-max tracking-[0.5px] ${
+                  ocorrenciaSelecionadaDetalhe.tipo === 'EVENTO'
+                    ? 'bg-[rgba(255,26,60,0.1)] text-[var(--accent-red)] border border-[rgba(255,26,60,0.15)] font-bold'
+                    : 'bg-slate-800 text-slate-300'
+                }`}>
+                  {ocorrenciaSelecionadaDetalhe.tipo}
+                </span>
+              </div>
+              {ocorrenciaSelecionadaDetalhe.tipo === 'EVENTO' && (
+                <div className="flex flex-col gap-0.5 col-span-2 mt-2 border-t border-slate-900 pt-2">
+                  <span className="text-slate-500 uppercase font-black text-[9px] tracking-[0.5px]">Evento Vinculado:</span>
+                  <span className="text-emerald-400 font-bold uppercase text-[12px]">{ocorrenciaSelecionadaDetalhe.nomeEvento}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Fatos Relatados */}
+            <div className="flex flex-col gap-2">
+              <label className="text-[10px] font-black uppercase tracking-[1px] text-slate-500">Histórico de Fatos e Detalhes</label>
+              <div className="p-4 rounded-xl border border-[rgba(255,255,255,0.04)] bg-slate-950/30 text-slate-200 text-[12px] whitespace-pre-line leading-relaxed max-h-[200px] overflow-y-auto font-sans">
+                {ocorrenciaSelecionadaDetalhe.detalhes}
+              </div>
+            </div>
+
+            {/* Evidência Fotográfica */}
+            <div className="flex flex-col gap-2">
+              <label className="text-[10px] font-black uppercase tracking-[1px] text-slate-500">Evidência Fotográfica</label>
+              {ocorrenciaSelecionadaDetalhe.fotoUrl ? (
+                <div className="flex flex-col gap-3">
+                  <img 
+                    src={ocorrenciaSelecionadaDetalhe.fotoUrl} 
+                    alt="Evidência Ocorrência" 
+                    className="w-full max-h-[250px] object-cover rounded-xl border border-slate-800"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => window.open(ocorrenciaSelecionadaDetalhe.fotoUrl || '', '_blank')}
+                    className="w-full py-2.5 rounded-xl border border-slate-800 hover:border-[var(--accent-red)] bg-slate-950/40 hover:bg-slate-900 text-slate-400 hover:text-white text-[11px] font-bold uppercase tracking-[0.5px] flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">open_in_new</span>
+                    Visualizar em Tamanho Real
+                  </button>
+                </div>
+              ) : (
+                <div className="py-8 text-center flex flex-col items-center justify-center gap-2 border border-dashed border-slate-800 rounded-xl bg-slate-950/10 text-slate-600">
+                  <span className="material-symbols-outlined text-[32px]">image_not_supported</span>
+                  <span className="text-[10px] font-bold uppercase tracking-[0.5px]">Nenhuma foto anexada a este registro</span>
+                </div>
+              )}
+            </div>
+
+            {/* Rodapé do Modal */}
+            <div className="flex border-t border-[rgba(255,255,255,0.03)] pt-4 mt-2">
+              <button
+                type="button"
+                onClick={fecharModais}
+                className="w-full py-3 rounded-xl text-[12px] font-bold uppercase tracking-[0.5px] bg-[var(--accent-red)] hover:bg-[var(--accent-red-hover)] text-white shadow-[0_0_20px_rgba(255,26,60,0.15)] transition-all cursor-pointer flex items-center justify-center gap-1"
+              >
+                Voltar ao Livro
+              </button>
+            </div>
+
           </div>
         </div>
       )}

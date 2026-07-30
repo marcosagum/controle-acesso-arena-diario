@@ -52,3 +52,31 @@ model RegistroAcesso {
 
   @@map("tb_registro_acesso")
 }
+
+// Modelo de Chave (Controle de Cautela CCO)
+model Chave {
+  id                String    @id @default(uuid())
+  codigo            String    @unique
+  status            String    @default("DISPONIVEL") // DISPONIVEL, EMPRESTADA, PERDIDA, QUEBRADA
+  observacao        String?   @map("observacao")
+  
+  // Dados de Empréstimo Ativo
+  emprestadaPara    String?   @map("emprestada_para")
+  timestampRetirada DateTime? @map("timestamp_retirada")
+  operadorLiberacao String?   @map("operador_liberacao")
+
+  @@map("tb_chaves")
+}
+
+// Histórico de Movimentação de Chaves (Auditoria)
+model RegistroChave {
+  id          String   @id @default(uuid())
+  chaveCodigo String   @map("chave_codigo")
+  acao        String   // RETIRADA, DEVOLVIDA, PERDIDA, QUEBRADA, DISPONIBILIZADA
+  responsavel String
+  operador    String
+  timestamp   DateTime @default(now()) @map("timestamp")
+  observacao  String?  @map("observacao")
+
+  @@map("tb_registro_chaves")
+}

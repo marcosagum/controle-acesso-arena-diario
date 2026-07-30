@@ -109,6 +109,18 @@ export default function AppLayout({ children }: AppLayoutProps) {
               <span className="material-symbols-outlined text-[20px]">group</span>
               Gestão de Cadastros
             </Link>
+
+            <Link
+              href="/chaves"
+              className={`flex items-center gap-3 px-4 py-3.5 rounded-xl text-[14px] font-medium transition-all ${
+                pathname === '/chaves'
+                  ? 'bg-[rgba(255,26,60,0.08)] text-[var(--accent-red)] border border-[rgba(255,26,60,0.15)] font-bold'
+                  : 'text-slate-400 hover:text-white hover:bg-[rgba(255,255,255,0.02)]'
+              }`}
+            >
+              <span className="material-symbols-outlined text-[20px]">key</span>
+              Controle de Chaves
+            </Link>
           </nav>
 
           {/* Rodapé da Sidebar */}
@@ -127,11 +139,13 @@ export default function AppLayout({ children }: AppLayoutProps) {
                 {pathname === '/' && 'Controle de Fluxo Operacional'}
                 {pathname === '/auditoria' && 'Painel de Auditoria Diária'}
                 {pathname === '/colaboradores' && 'Gestão de Colaboradores'}
+                {pathname === '/chaves' && 'Gestão de Chaves e Cautela'}
               </h2>
               <p className="text-[12px] text-slate-400">
                 {pathname === '/' && 'Monitoramento ativo e liberação rápida de acessos'}
                 {pathname === '/auditoria' && 'Relatórios consolidados de check-ins e check-outs'}
                 {pathname === '/colaboradores' && 'Cadastro de prestadores de serviço e empresas credenciadas'}
+                {pathname === '/chaves' && 'Controle de empréstimos, devoluções e integridade física de chaves CCO'}
               </p>
             </div>
 

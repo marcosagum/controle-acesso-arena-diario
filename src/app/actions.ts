@@ -448,3 +448,232 @@ export async function deletarColaborador(id: string): Promise<void> {
     throw new Error(error.message || 'Falha ao deletar colaborador.');
   }
 }
+
+// ==========================================
+// MÓDULO DE CONTROLE DE CHAVES (CAUTELA CCO)
+// ==========================================
+
+const LISTA_OFICIAL_CHAVES = [
+  "ABELARDO P1", "ALMOXARIFADO-CCO", "AREA TECNICA ELETRICA-CCO", 
+  "AREA TECNICA N/1 SALA SEGURANÇA GL", "AREA TECNICA AR CONDICIONADO-CCO", 
+  "ARMAZEM NIVEL LOJA 1", "AUDITORIO ANTIGO - CCO", "AUDITORIO GL ( INTERNA )", 
+  "AUTOMAÇÃO MANUTENÇÃO", "BANHEIRO DE SERVIÇO CCO", "BILHETERIA-CCO", 
+  "C.A.G / T.I / C. P D -CCO", "CAÇAMBAS DE LIXO-CCO", "CAÇAMBA RECICLAVEL-CCO", 
+  "CALDEIRA-CCO", "CAMAROTES-CCO", "CAMARINS 1 2 3 4 5 E 6-CCO", "CANCELA P5", 
+  "CATWALK ESCADAS 2 E 5", "CAUTELA-CCO", "CERCADO COZINHA-CCO", 
+  "CERCADO LATERAL CAUTELA - CCO", "CERCADO SUBSTAÇAO-CCO", "CLUBE CINZA NIVEL 2", 
+  "CONTROLE DOCAS-CCO", "CASA DE MAQUINAS-CCO", "COZINHA NIVEL 0 -CCO", 
+  "COZINHA NIVEL 3(A&B-PIPOCA)", "COZINHA PORTAS EXTERNA-CCO", "CREDENCIAMENTO - CCO", 
+  "DEPOSITO MESAS(T-20)-CCO", "DG-01", "DOCAS A&B-CCO", "GAS-CCO", 
+  "GUARITA PORTAO 1-CCO", "LETREIRO JEUNESSE ARENA-CCO", "LOJA 1 NIVEL 1-CCO", 
+  "LOJA 2 NIVEL 1(BASE LIMPEZA)CCO", "LOJA 2 NIVEL 2-CCO", "LOJA 4 NIVEL 1-CCO", 
+  "LOJA 5 NIVEL1-CCO", "LOJA 13 NIVEL 1-CCO", "LOUDNESS SALA EXTERNA", 
+  "PORTA ADM LADO COZINHA-CCO", "PORTA DE FERRO(ADM)-CCO", "PORTA EXTERNA DEPOSITO ARENA 1", 
+  "PORTA EXT ESCRITORIO GSH-CCO", "PORTA(PRETA)COZINHA-CCO", "PORTAS NIVEL 0 - CCO", 
+  "PORTAS NIVEL 01-CCO", "PORTAO 01-CCO", "PORTAO P. OLIMPICO / DOCAS-CCO", 
+  "PORTOES ALFACEM-CCO", "POSTO MEDICO NIVEL 0-CCO", "POSTO MEDICO NIVEL 1-CCO", 
+  "QDG QUADRA-CCO", "RACK NIVEL 2-CCO", "RACK P1-CCO", "RACK P5-CCO", 
+  "RETRATIL-CCO", "SALA DE PRODUÇÃO T-06 CCO", "SALA DE PRODUÇÃO T-07 CCO", 
+  "SALA DE PRODUÇÃO T-08 CCO", "SALA DE PRODUÇÃO T-48 CCO", 
+  "SALA DE PRODUÇÃO 51 52 53 E 54-CCO", "SALA GL LIVE-CCO", "SALA T-19-CCO", 
+  "SALA T-20 CCO", "SALA T-32 CCO", "SALA T-35-CCO", "SALA T-36 CCO", 
+  "SALAS T-36/37 PORTA EXTERNA", "SALA T-39 CCO", "SALA T-40 CCO", 
+  "SALA T-41 CCO", "SALA T-49 CCO", "SALA T-50 CCO", "SALA T-56 CCO", 
+  "SANITARIOS NIVEL 0-CCO", "SANITARIOS NIVEL 1-CCO", "SANITARIOS NIVEL 2-CCO", 
+  "SANITARIOS NIVEL 3-CCO", "T - 27", "T-47(LADO PRODUÇAO) CCO", 
+  "TAPUME-CCO", "VESTIARIO 01 CCO", "VESTIARIO 4 CCO"
+];
+
+export interface ChaveInfo {
+  id: string;
+  codigo: string;
+  status: string;
+  observacao: string | null;
+  emprestadaPara: string | null;
+  timestampRetirada: Date | null;
+  operadorLiberacao: string | null;
+}
+
+export interface HistoricoChaveInfo {
+  id: string;
+  chaveCodigo: string;
+  acao: string;
+  responsavel: string;
+  operador: string;
+  timestamp: Date;
+  observacao: string | null;
+}
+
+// 11. Obter todas as chaves (com seeding automático se estiver vazio)
+export async function getChaves(): Promise<ChaveInfo[]> {
+  try {
+    let chaves = await prisma.chave.findMany({
+      orderBy: { codigo: 'asc' }
+    });
+
+    // Se o banco estiver vazio, fazemos o seeding automático
+    if (chaves.length === 0) {
+      console.log('Populando tabela tb_chaves com a lista oficial de 86 chaves...');
+      await prisma.chave.createMany({
+        data: LISTA_OFICIAL_CHAVES.map(codigo => ({
+          codigo,
+          status: 'DISPONIVEL'
+        }))
+      });
+
+      // Busca novamente
+      chaves = await prisma.chave.findMany({
+        orderBy: { codigo: 'asc' }
+      });
+    }
+
+    return chaves;
+  } catch (error: any) {
+    console.error('Erro ao buscar chaves:', error);
+    throw new Error('Falha ao recuperar base de chaves.');
+  }
+}
+
+// 12. Emprestar chave
+export async function emprestarChave(
+  id: string,
+  emprestadaPara: string,
+  operadorLiberacao: string
+): Promise<void> {
+  try {
+    const chave = await prisma.chave.findUnique({ where: { id } });
+    if (!chave) throw new Error('Chave não encontrada.');
+    if (chave.status !== 'DISPONIVEL') throw new Error('Esta chave não está disponível.');
+
+    // Atualizar chave
+    await prisma.chave.update({
+      where: { id },
+      data: {
+        status: 'EMPRESTADA',
+        emprestadaPara,
+        timestampRetirada: new Date(),
+        operadorLiberacao
+      }
+    });
+
+    // Gravar log de auditoria de chaves
+    await prisma.registroChave.create({
+      data: {
+        chaveCodigo: chave.codigo,
+        acao: 'RETIRADA',
+        responsavel: emprestadaPara,
+        operador: operadorLiberacao,
+        timestamp: new Date()
+      }
+    });
+
+    revalidatePath('/chaves');
+  } catch (error: any) {
+    console.error('Erro ao emprestar chave:', error);
+    throw new Error(error.message || 'Falha ao registrar empréstimo de chave.');
+  }
+}
+
+// 13. Devolver chave
+export async function devolverChave(
+  id: string,
+  operador: string,
+  observacao?: string
+): Promise<void> {
+  try {
+    const chave = await prisma.chave.findUnique({ where: { id } });
+    if (!chave) throw new Error('Chave não encontrada.');
+    if (chave.status !== 'EMPRESTADA') throw new Error('Esta chave não está marcada como emprestada.');
+
+    const responsavelOriginal = chave.emprestadaPara || 'NÃO IDENTIFICADO';
+
+    // Atualizar chave limpando campos
+    await prisma.chave.update({
+      where: { id },
+      data: {
+        status: 'DISPONIVEL',
+        emprestadaPara: null,
+        timestampRetirada: null,
+        operadorLiberacao: null,
+        observacao: observacao || null
+      }
+    });
+
+    // Gravar log de devolução
+    await prisma.registroChave.create({
+      data: {
+        chaveCodigo: chave.codigo,
+        acao: 'DEVOLVIDA',
+        responsavel: responsavelOriginal,
+        operador: operador,
+        timestamp: new Date(),
+        observacao: observacao || null
+      }
+    });
+
+    revalidatePath('/chaves');
+  } catch (error: any) {
+    console.error('Erro ao devolver chave:', error);
+    throw new Error(error.message || 'Falha ao registrar devolução de chave.');
+  }
+}
+
+// 14. Atualizar status e observação de chave (Perdida / Quebrada / Forçar Disponível)
+export async function atualizarStatusChave(
+  id: string,
+  status: 'DISPONIVEL' | 'PERDIDA' | 'QUEBRADA',
+  observacao: string,
+  operador: string,
+  responsavelReporte: string
+): Promise<void> {
+  try {
+    const chave = await prisma.chave.findUnique({ where: { id } });
+    if (!chave) throw new Error('Chave não encontrada.');
+
+    let acaoReg = 'DISPONIBILIZADA';
+    if (status === 'PERDIDA') acaoReg = 'INDISPONIVEL_PERDIDA';
+    if (status === 'QUEBRADA') acaoReg = 'INDISPONIVEL_QUEBRADA';
+
+    // Atualizar a chave
+    await prisma.chave.update({
+      where: { id },
+      data: {
+        status,
+        observacao: observacao || null,
+        // Limpar empréstimos se estiver marcando como perdida/quebrada
+        emprestadaPara: status === 'DISPONIVEL' ? chave.emprestadaPara : null,
+        timestampRetirada: status === 'DISPONIVEL' ? chave.timestampRetirada : null,
+        operadorLiberacao: status === 'DISPONIVEL' ? chave.operadorLiberacao : null
+      }
+    });
+
+    // Gravar log no histórico
+    await prisma.registroChave.create({
+      data: {
+        chaveCodigo: chave.codigo,
+        acao: acaoReg,
+        responsavel: responsavelReporte || 'SISTEMA',
+        operador,
+        timestamp: new Date(),
+        observacao: observacao || null
+      }
+    });
+
+    revalidatePath('/chaves');
+  } catch (error: any) {
+    console.error('Erro ao alterar status da chave:', error);
+    throw new Error(error.message || 'Falha ao alterar status físico da chave.');
+  }
+}
+
+// 15. Obter histórico completo de chaves
+export async function getHistoricoChaves(): Promise<HistoricoChaveInfo[]> {
+  try {
+    return prisma.registroChave.findMany({
+      orderBy: { timestamp: 'desc' }
+    });
+  } catch (error: any) {
+    console.error('Erro ao buscar histórico de chaves:', error);
+    throw new Error('Falha ao recuperar histórico de auditoria de chaves.');
+  }
+}

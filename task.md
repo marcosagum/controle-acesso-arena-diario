@@ -1,5 +1,6 @@
-- [ ] Criar estado ocorrenciaSelecionadaDetalhe em [page.tsx](file:///C:/Users/marcos.agum/.gemini/antigravity/scratch/controle-acesso-arena/src/app/operacoes/page.tsx)
-- [ ] Atualizar tabela do Livro de Ocorrências com linhas clicáveis no [page.tsx](file:///C:/Users/marcos.agum/.gemini/antigravity/scratch/controle-acesso-arena/src/app/operacoes/page.tsx)
-- [ ] Criar o modal detalhe_ocorrencia com layout de cartão, descrição espaçosa e visualizador de foto anexada no [page.tsx](file:///C:/Users/marcos.agum/.gemini/antigravity/scratch/controle-acesso-arena/src/app/operacoes/page.tsx)
-- [ ] Validar integridade do build da aplicação
-- [ ] Enviar atualizações para o GitHub e implantar na Vercel
+- [x] Criar estado ocorrenciaSelecionadaDetalhe em [page.tsx](file:///C:/Users/marcos.agum/.gemini/antigravity/scratch/controle-acesso-arena/src/app/operacoes/page.tsx)
+- [x] Atualizar tabela do Livro de Ocorrências com linhas clicáveis no [page.tsx](file:///C:/Users/marcos.agum/.gemini/antigravity/scratch/controle-acesso-arena/src/app/operacoes/page.tsx)
+- [x] Criar o modal detalhe_ocorrencia com layout de cartão, descrição espaçosa e visualizador de foto anexada no [page.tsx](file:///C:/Users/marcos.agum/.gemini/antigravity/scratch/controle-acesso-arena/src/app/operacoes/page.tsx)
+- [x] Implementar visualizador Lightbox interna para driblar bloqueios de popups do Chrome/Edge
+- [x] Validar integridade do build da aplicação
+- [x] Enviar atualizações para o GitHub e implantar na Vercel
